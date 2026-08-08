@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Nouveau trajet — Trip Cost Manager{% endblock %}
+{% block content %}
+<section class="section">
+  <h1>Nouveau trajet</h1>
+  <p class="section-lead">Calculez d’abord le coût, vérifiez le résultat, puis archivez le trajet.</p>
+
+  {% if error %}
+  <p class="alert">{{ error }}</p>
+  {% endif %}
+
+  {% if vehicles %}
+  <form method="post" action="/trips/new" class="form-grid" id="trip-form">
+    <label>
+      Nom du trajet
+      <input type="text" name="name" required value="{{ form.name }}" placeholder="Ex. Retour vacances">
+    </label>
+    <label>
+      Date
+      <input type="date" name="trip_date" required value="{{ form.trip_date }}">
+    </label>
+    <label>
+      Départ
+      <input type="text" name="departure" required value="{{ form.departure }}" placeholder="Ex. Rennes">
+    </label>
+    <label>
+      Arrivée
+      <input type="text" name="arrival" required value="{{ form.arrival }}" placeholder="Ex. Lyon">
+    </label>
+    <label class="full">
+      Véhicule
+      <select name="vehicle_id" id="vehicle-select" required>
+        {% for vehicle in vehicles %}
+        {% set profile = get_fuel_profile(vehicle.fuel_type) %}
+        <option
+          value="{{ vehicle.id }}"
+          {% if selected_vehicle_id == vehicle.id %}selected{% endif %}
+          data-price-label="{{ profile.price_label }}"
+          data-unit="{{ profile.unit }}"
+          data-consumption="{{ vehicle.consumption_l_per_100km }}"
+          data-fuel="{{ vehicle.fuel_type }}"
+        >
+          {{ vehicle.name }} — {{ vehicle.model }} ({{ vehicle.consumption_l_per_100km }} {{ consumption_unit_label(vehicle.fuel_type) }} · {{ vehicle.fuel_type }})
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Distance (km)
+      <input type="number" name="distance_km" step="0.1" min="0.1" required value="{{ form.distance_km }}">
+      <span class="hint">Saisie manuelle pour l’instant — auto plus tard via Maps</span>
+    </label>
+    <label>
+      <span id="price-label">{{ selected_profile.price_label }}</span>
+      <input type="number" name="fuel_price_per_liter" id="price-input" step="0.001" min="0" required value="{{ form.fuel_price_per_liter }}" placeholder="{{ '0.20' if selected_profile.unit == 'kWh' else '1.85' }}">
+    </label>
+    <label>
+      Péages (€)
+      <input type="number" name="tolls" step="0.01" min="0" value="{{ form.tolls }}">
+    </label>
+    <label>
+      Nombre de personnes
+      <input type="number" name="passengers" min="1" step="1" required value="{{ form.passengers }}">
+      <span class="hint">Conducteur inclus</span>
+    </label>
+    <div class="form-actions full">
+      <button type="submit" name="action" value="calculate" class="btn primary">Calculer</button>
+      {% if costs %}
+      <button type="submit" name="action" value="archive" class="btn ghost">Archiver le trajet</button>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if costs %}
+  <div class="result-panel" id="result-panel">
+    <h2>Résultat du calcul</h2>
+    <p class="section-lead">
+      {{ form.name }} · {{ form.departure }} → {{ form.arrival }}
+      {% if form.trip_date %} · {{ form.trip_date }}{% endif %}
+    </p>
+    {% if comment %}
+    <p class="egg-comment">{{ comment }}</p>
+    {% endif %}
+    <dl class="stat-row">
+      <div>
+        <dt>{{ 'Électricité' if costs.energy_unit == 'kWh' else 'Carburant' }}</dt>
+        <dd>{{ costs.fuel_cost|euro }}</dd>
+      </div>
+      <div>
+        <dt>Entretien</dt>
+        <dd>{{ costs.maintenance_cost|euro }}</dd>
+      </div>
+      <div>
+        <dt>Amortissement</dt>
+        <dd>{{ costs.amortization_cost|euro }}</dd>
+      </div>
+      <div>
+        <dt>Péages</dt>
+        <dd>{{ form.tolls|float|euro }}</dd>
+      </div>
+      <div>
+        <dt>Total</dt>
+        <dd>{{ costs.total_cost|euro }}</dd>
+      </div>
+      <div>
+        <dt>Par personne</dt>
+        <dd>{{ costs.cost_per_person|euro }}</dd>
+      </div>
+      <div>
+        <dt>Énergie</dt>
+        <dd>{{ "%.2f"|format(costs.energy_used) }} {{ costs.energy_unit }}</dd>
+      </div>
+      <div>
+        <dt>CO₂</dt>
+        <dd>{{ costs.co2_kg|kg }}</dd>
+      </div>
+    </dl>
+    <p class="hint">Facteur utilisé : {{ costs.co2_factor }} kg CO₂ / {{ costs.energy_unit }}. Si un champ change, recalculez avant d’archiver.</p>
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="empty">Créez d’abord un véhicule avant d’ajouter un trajet.</p>
+  <div class="actions">
+    <a class="btn primary" href="/vehicles">Créer un véhicule</a>
+  </div>
+  {% endif %}
+</section>
+<script>
+  (function () {
+    const select = document.getElementById("vehicle-select");
+    const priceLabel = document.getElementById("price-label");
+    const priceInput = document.getElementById("price-input");
+    if (select && priceLabel && priceInput) {
+      const syncPrice = () => {
+        const option = select.options[select.selectedIndex];
+        priceLabel.textContent = option.dataset.priceLabel;
+        priceInput.placeholder = option.dataset.unit === "kWh" ? "0.20" : "1.85";
+      };
+      select.addEventListener("change", syncPrice);
+      syncPrice();
+    }
+
+    {% if costs %}
+    const form = document.getElementById("trip-form");
+    const panel = document.getElementById("result-panel");
+    const archiveBtn = form && form.querySelector('button[value="archive"]');
+    if (form && panel) {
+      const clearPreview = () => {
+        panel.remove();
+        if (archiveBtn) archiveBtn.remove();
+        form.removeEventListener("input", clearPreview);
+        form.removeEventListener("change", clearPreview);
+      };
+      form.addEventListener("input", clearPreview);
+      form.addEventListener("change", clearPreview);
+    }
+    {% endif %}
+  })();
+</script>
+{% endblock %}

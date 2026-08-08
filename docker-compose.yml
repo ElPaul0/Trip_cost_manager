@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tripuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tripsecret}
+      POSTGRES_DB: ${POSTGRES_DB:-trip_cost_manager}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tripuser} -d ${POSTGRES_DB:-trip_cost_manager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-tripuser}:${POSTGRES_PASSWORD:-tripsecret}@db:5432/${POSTGRES_DB:-trip_cost_manager}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

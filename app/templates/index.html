@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Accueil — Trip Cost Manager{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="brand-mark">Trip Cost Manager</p>
+  <h1>Combien coûte vraiment ce trajet&nbsp;?</h1>
+  <p class="lead">Choisissez un véhicule, saisissez distance et carburant, archivez le résultat pour suivre vos coûts dans le temps.</p>
+  <div class="actions">
+    <a class="btn primary" href="/trips/new">Ajouter un trajet</a>
+    <a class="btn ghost" href="/vehicles">Gérer les véhicules</a>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Vue d’ensemble</h2>
+  <p class="section-lead">Un aperçu rapide de votre activité.</p>
+  <dl class="stat-row">
+    <div>
+      <dt>Véhicules</dt>
+      <dd>{{ vehicle_count }}</dd>
+    </div>
+    <div>
+      <dt>Trajets</dt>
+      <dd>{{ stats.trip_count }}</dd>
+    </div>
+    <div>
+      <dt>Kilomètres</dt>
+      <dd>{{ "%.1f"|format(stats.total_km) }} km</dd>
+    </div>
+    <div>
+      <dt>Coût total</dt>
+      <dd>{{ stats.total_cost|euro }}</dd>
+    </div>
+    <div>
+      <dt>CO₂ total</dt>
+      <dd>{{ stats.total_co2|kg }}</dd>
+    </div>
+  </dl>
+</section>
+
+<section class="section">
+  <h2>Derniers trajets</h2>
+  {% if recent_trips %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Trajet</th>
+          <th>Véhicule</th>
+          <th>Distance</th>
+          <th>Total</th>
+          <th>CO₂</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trip in recent_trips %}
+        <tr>
+          <td>{{ trip.trip_date.strftime("%d/%m/%Y") }}</td>
+          <td>
+            <strong>{{ trip.name }}</strong>
+            <div class="table-sub">{{ trip.departure }} → {{ trip.arrival }}</div>
+          </td>
+          <td><a href="/vehicles/{{ trip.vehicle_id }}">{{ trip.vehicle.name }}</a></td>
+          <td>{{ "%.1f"|format(trip.distance_km) }} km</td>
+          <td>{{ trip.total_cost|euro }}</td>
+          <td>{{ trip.co2_kg|kg }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">Aucun trajet pour l’instant. Commencez par créer un véhicule, puis ajoutez votre premier trajet.</p>
+  {% endif %}
+</section>
+{% endblock %}

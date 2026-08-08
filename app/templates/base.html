@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Trip Cost Manager{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Outfit:wght@360;500;650&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <header class="site-header">
+    <a class="brand" href="/">Trip Cost Manager</a>
+    <nav class="nav">
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Accueil</a>
+      <a href="/vehicles" class="{% if request.url.path.startswith('/vehicles') %}active{% endif %}">Véhicules</a>
+      <a href="/trips/new" class="{% if request.url.path.startswith('/trips') %}active{% endif %}">Nouveau trajet</a>
+    </nav>
+  </header>
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">
+    <p>Calculs de trajets archivés localement — prêt pour Docker.</p>
+  </footer>
+</body>
+</html>

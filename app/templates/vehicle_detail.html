@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ vehicle.name }} — Trip Cost Manager{% endblock %}
+{% block content %}
+<section class="section">
+  <p class="eyebrow"><a href="/vehicles">← Véhicules</a></p>
+  <h1>{{ vehicle.name }}</h1>
+  <p class="section-lead">
+    {{ vehicle.model }} · {{ vehicle.fuel_type }} ·
+    {{ vehicle.consumption_l_per_100km }} {{ consumption_unit_label(vehicle.fuel_type) }} ·
+    {{ profile.co2_kg_per_unit }} kg CO₂/{{ profile.unit }}
+  </p>
+
+  <dl class="meta-inline">
+    <div>
+      <dt>Entretien</dt>
+      <dd>{{ "%.3f"|format(vehicle.maintenance_per_km) }} €/km</dd>
+    </div>
+    <div>
+      <dt>Amortissement</dt>
+      <dd>{{ "%.3f"|format(vehicle.amortization_per_km) }} €/km</dd>
+    </div>
+  </dl>
+
+  <div class="actions">
+    <a class="btn primary" href="/trips/new?vehicle_id={{ vehicle.id }}">Nouveau trajet</a>
+    <a class="btn ghost" href="/vehicles/{{ vehicle.id }}/edit">Modifier</a>
+    <a class="btn danger" href="/vehicles/{{ vehicle.id }}/delete">Supprimer</a>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Statistiques</h2>
+  <dl class="stat-row">
+    <div>
+      <dt>Trajets</dt>
+      <dd>{{ stats.trip_count }}</dd>
+    </div>
+    <div>
+      <dt>Kilomètres</dt>
+      <dd>{{ "%.1f"|format(stats.total_km) }} km</dd>
+    </div>
+    <div>
+      <dt>Coût total</dt>
+      <dd>{{ stats.total_cost|euro }}</dd>
+    </div>
+    <div>
+      <dt>CO₂ total</dt>
+      <dd>{{ stats.total_co2|kg }}</dd>
+    </div>
+    <div>
+      <dt>Coût moyen / km</dt>
+      <dd>{{ "%.3f"|format(stats.avg_cost_per_km) }} €</dd>
+    </div>
+  </dl>
+</section>
+
+<section class="section">
+  <h2>Archive des trajets</h2>
+  {% if trips %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Trajet</th>
+          <th>Distance</th>
+          <th>{{ 'Électricité' if profile.unit == 'kWh' else 'Carburant' }}</th>
+          <th>Péages</th>
+          <th>CO₂</th>
+          <th>Total</th>
+          <th>/ pers.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trip in trips %}
+        <tr>
+          <td>{{ trip.trip_date.strftime("%d/%m/%Y") }}</td>
+          <td>
+            <strong>{{ trip.name }}</strong>
+            <div class="table-sub">{{ trip.departure }} → {{ trip.arrival }}</div>
+          </td>
+          <td>{{ "%.1f"|format(trip.distance_km) }} km</td>
+          <td>{{ trip.fuel_cost|euro }}</td>
+          <td>{{ trip.tolls|euro }}</td>
+          <td>{{ trip.co2_kg|kg }}</td>
+          <td>{{ trip.total_cost|euro }}</td>
+          <td>{{ trip.cost_per_person|euro }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">Pas encore de trajet pour ce véhicule.</p>
+  {% endif %}
+</section>
+{% endblock %}

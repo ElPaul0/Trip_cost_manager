@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Supprimer {{ vehicle.name }} — Trip Cost Manager{% endblock %}
+{% block content %}
+<section class="section">
+  <p class="eyebrow"><a href="/vehicles/{{ vehicle.id }}">← {{ vehicle.name }}</a></p>
+  <h1>Êtes-vous sûr&nbsp;?</h1>
+  <p class="section-lead">
+    Vous êtes sur le point de supprimer le véhicule <strong>{{ vehicle.name }}</strong>
+    ({{ vehicle.model }}).
+  </p>
+
+  <p class="alert">
+    {% if trip_count == 0 %}
+      Aucun trajet n’est lié à ce véhicule pour l’instant.
+    {% elif trip_count == 1 %}
+      Attention : <strong>1 trajet lié</strong> sera aussi définitivement supprimé.
+    {% else %}
+      Attention : <strong>{{ trip_count }} trajets liés</strong> seront aussi définitivement supprimés.
+    {% endif %}
+    Cette action est irréversible.
+  </p>
+
+  <div class="actions">
+    <form method="post" action="/vehicles/{{ vehicle.id }}/delete" class="inline-form">
+      <button type="submit" class="btn danger">Oui, supprimer définitivement</button>
+    </form>
+    <a class="btn ghost" href="/vehicles/{{ vehicle.id }}">Non, annuler</a>
+  </div>
+</section>
+{% endblock %}

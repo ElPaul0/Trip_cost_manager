@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Modifier {{ vehicle.name }} — Trip Cost Manager{% endblock %}
+{% block content %}
+<section class="section">
+  <p class="eyebrow"><a href="/vehicles/{{ vehicle.id }}">← {{ vehicle.name }}</a></p>
+  <h1>Modifier le véhicule</h1>
+  <p class="section-lead">Les trajets déjà archivés gardent leurs coûts calculés au moment de l’enregistrement.</p>
+
+  {% if error %}
+  <p class="alert">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" action="/vehicles/{{ vehicle.id }}/edit" class="form-grid" id="vehicle-form">
+    <label>
+      Nom
+      <input type="text" name="name" required value="{{ vehicle.name }}">
+    </label>
+    <label>
+      Modèle
+      <input type="text" name="model" required value="{{ vehicle.model }}">
+    </label>
+    <label>
+      Carburant
+      <select name="fuel_type" id="fuel-type" required>
+        {% for fuel in fuel_types %}
+        <option
+          value="{{ fuel }}"
+          {% if vehicle.fuel_type == fuel %}selected{% endif %}
+          data-consumption-label="{{ fuel_profiles[fuel].consumption_label }}"
+          data-co2="{{ fuel_profiles[fuel].co2_kg_per_unit }}"
+          data-unit="{{ fuel_profiles[fuel].unit }}"
+        >
+          {{ fuel }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span id="consumption-label">{{ fuel_profiles[vehicle.fuel_type].consumption_label if vehicle.fuel_type in fuel_profiles else 'Conso (L/100 km)' }}</span>
+      <input type="number" name="consumption_l_per_100km" id="consumption-input" step="0.1" min="0" required value="{{ vehicle.consumption_l_per_100km }}">
+      <span class="hint" id="co2-hint"></span>
+    </label>
+    <label>
+      Entretien (€/km)
+      <input type="number" name="maintenance_per_km" step="0.001" min="0" value="{{ vehicle.maintenance_per_km }}">
+    </label>
+    <label>
+      Amortissement (€/km)
+      <input type="number" name="amortization_per_km" step="0.001" min="0" value="{{ vehicle.amortization_per_km }}">
+    </label>
+    <div class="form-actions full">
+      <button type="submit" class="btn primary">Enregistrer</button>
+      <a class="btn ghost" href="/vehicles/{{ vehicle.id }}">Annuler</a>
+    </div>
+  </form>
+</section>
+<script>
+  (function () {
+    const select = document.getElementById("fuel-type");
+    const label = document.getElementById("consumption-label");
+    const input = document.getElementById("consumption-input");
+    const hint = document.getElementById("co2-hint");
+    if (!select || !label || !input || !hint) return;
+
+    const sync = () => {
+      const option = select.options[select.selectedIndex];
+      const unit = option.dataset.unit;
+      const co2 = Number(option.dataset.co2).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+      label.textContent = option.dataset.consumptionLabel;
+      hint.textContent = `Facteur CO₂ : ${co2} kg/${unit}`;
+      input.placeholder = unit === "kWh" ? "16" : "5.5";
+    };
+
+    select.addEventListener("change", sync);
+    sync();
+  })();
+</script>
+{% endblock %}
