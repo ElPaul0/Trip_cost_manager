@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,10 +8,11 @@
     (function () {
       try {
         var stored = localStorage.getItem("tcm-theme");
-        var theme = stored === "dark" || stored === "light"
-          ? stored
-          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-        document.documentElement.setAttribute("data-theme", theme);
+        if (stored === "dark" || stored === "light") {
+          document.documentElement.setAttribute("data-theme", stored);
+        } else {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
       } catch (e) {
         document.documentElement.setAttribute("data-theme", "light");
       }
@@ -20,19 +21,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Outfit:wght@360;500;650&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true"></div>
   <header class="site-header">
-    <a class="brand" href="/">Trip Cost Manager</a>
-    <nav class="nav">
-      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Accueil</a>
-      <a href="/vehicles" class="{% if request.url.path.startswith('/vehicles') %}active{% endif %}">Véhicules</a>
-      <a href="/trips/new" class="{% if request.url.path.startswith('/trips') %}active{% endif %}">Nouveau trajet</a>
-      <a href="/users" class="{% if request.url.path.startswith('/users') %}active{% endif %}">Utilisateurs</a>
-    </nav>
-    <div class="header-tools">
+    <div class="header-top">
+      <a class="brand" href="/">Trip Cost Manager</a>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Activer le mode sombre">
+        <span class="theme-toggle-icon" aria-hidden="true"></span>
+        <span class="theme-toggle-label">Sombre</span>
+      </button>
+    </div>
+    <div class="header-bottom">
+      <nav class="nav">
+        <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Accueil</a>
+        <a href="/vehicles" class="{% if request.url.path.startswith('/vehicles') %}active{% endif %}">Véhicules</a>
+        <a href="/trips/new" class="{% if request.url.path.startswith('/trips') %}active{% endif %}">Nouveau trajet</a>
+        <a href="/users" class="{% if request.url.path.startswith('/users') %}active{% endif %}">Utilisateurs</a>
+      </nav>
       {% if active_user %}
       <div class="user-chip">
         <span class="user-chip-name">{{ active_user.name }}</span>
@@ -42,10 +49,6 @@
         <a href="/users" class="user-chip-link">Changer</a>
       </div>
       {% endif %}
-      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Activer le mode sombre">
-        <span class="theme-toggle-icon" aria-hidden="true"></span>
-        <span class="theme-toggle-label">Sombre</span>
-      </button>
     </div>
   </header>
   <main class="page">
@@ -62,12 +65,12 @@
 
       const sync = () => {
         const theme = root.getAttribute("data-theme") === "dark" ? "dark" : "light";
-        const nextLabel = theme === "dark" ? "Clair" : "Sombre";
         button.setAttribute(
           "aria-label",
           theme === "dark" ? "Activer le mode clair" : "Activer le mode sombre"
         );
-        button.querySelector(".theme-toggle-label").textContent = nextLabel;
+        button.querySelector(".theme-toggle-label").textContent =
+          theme === "dark" ? "Clair" : "Sombre";
       };
 
       button.addEventListener("click", () => {
