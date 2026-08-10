@@ -4,6 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Trip Cost Manager{% endblock %}</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("tcm-theme");
+        var theme = stored === "dark" || stored === "light"
+          ? stored
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Outfit:wght@360;500;650&display=swap" rel="stylesheet">
@@ -17,7 +30,23 @@
       <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Accueil</a>
       <a href="/vehicles" class="{% if request.url.path.startswith('/vehicles') %}active{% endif %}">Véhicules</a>
       <a href="/trips/new" class="{% if request.url.path.startswith('/trips') %}active{% endif %}">Nouveau trajet</a>
+      <a href="/users" class="{% if request.url.path.startswith('/users') %}active{% endif %}">Utilisateurs</a>
     </nav>
+    <div class="header-tools">
+      {% if active_user %}
+      <div class="user-chip">
+        <span class="user-chip-name">{{ active_user.name }}</span>
+        {% if active_user.tagline %}
+        <span class="user-chip-tagline">{{ active_user.tagline }}</span>
+        {% endif %}
+        <a href="/users" class="user-chip-link">Changer</a>
+      </div>
+      {% endif %}
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Activer le mode sombre">
+        <span class="theme-toggle-icon" aria-hidden="true"></span>
+        <span class="theme-toggle-label">Sombre</span>
+      </button>
+    </div>
   </header>
   <main class="page">
     {% block content %}{% endblock %}
@@ -25,5 +54,31 @@
   <footer class="site-footer">
     <p>Calculs de trajets archivés localement — prêt pour Docker.</p>
   </footer>
+  <script>
+    (function () {
+      const root = document.documentElement;
+      const button = document.getElementById("theme-toggle");
+      if (!button) return;
+
+      const sync = () => {
+        const theme = root.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        const nextLabel = theme === "dark" ? "Clair" : "Sombre";
+        button.setAttribute(
+          "aria-label",
+          theme === "dark" ? "Activer le mode clair" : "Activer le mode sombre"
+        );
+        button.querySelector(".theme-toggle-label").textContent = nextLabel;
+      };
+
+      button.addEventListener("click", () => {
+        const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem("tcm-theme", next); } catch (e) {}
+        sync();
+      });
+
+      sync();
+    })();
+  </script>
 </body>
 </html>

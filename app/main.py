@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import inspect, select, text
@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session, joinedload
 from app.comments import trip_comment
 from app.database import Base, engine, get_db
 from app.fuels import FUEL_TYPES, consumption_unit_label, get_fuel_profile
-from app.models import Trip, Vehicle
+from app.models import Trip, User, Vehicle
 from app.schemas import TripCosts, calculate_trip_costs
 
 BASE_DIR = Path(__file__).resolve().parent
+ACTIVE_USER_COOKIE = "active_user_id"
 
 app = FastAPI(title="Trip Cost Manager")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -24,32 +25,59 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 def ensure_schema() -> None:
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
-    if "trips" not in inspector.get_table_names():
-        return
-
-    columns = {column["name"] for column in inspector.get_columns("trips")}
-    alterations: list[str] = []
-    if "name" not in columns:
-        alterations.append("ALTER TABLE trips ADD COLUMN name VARCHAR(160) DEFAULT ''")
-    if "departure" not in columns:
-        alterations.append("ALTER TABLE trips ADD COLUMN departure VARCHAR(160) DEFAULT ''")
-    if "arrival" not in columns:
-        alterations.append("ALTER TABLE trips ADD COLUMN arrival VARCHAR(160) DEFAULT ''")
-    if "trip_date" not in columns:
-        alterations.append("ALTER TABLE trips ADD COLUMN trip_date TIMESTAMP")
-    if "energy_used" not in columns:
-        alterations.append("ALTER TABLE trips ADD COLUMN energy_used FLOAT DEFAULT 0")
-    if "co2_kg" not in columns:
-        alterations.append("ALTER TABLE trips ADD COLUMN co2_kg FLOAT DEFAULT 0")
-
-    if not alterations:
-        return
+    table_names = set(inspector.get_table_names())
 
     with engine.begin() as conn:
-        for statement in alterations:
-            conn.execute(text(statement))
-        if "trip_date" not in columns:
-            conn.execute(text("UPDATE trips SET trip_date = created_at WHERE trip_date IS NULL"))
+        if "vehicles" in table_names:
+            vehicle_columns = {column["name"] for column in inspector.get_columns("vehicles")}
+            if "user_id" not in vehicle_columns:
+                default_user = conn.execute(
+                    text("SELECT id FROM users ORDER BY id LIMIT 1")
+                ).first()
+                if default_user is None:
+                    conn.execute(
+                        text(
+                            "INSERT INTO users (name, tagline) VALUES "
+                            "('Utilisateur', 'Espace de départ')"
+                        )
+                    )
+                    default_user = conn.execute(
+                        text("SELECT id FROM users ORDER BY id LIMIT 1")
+                    ).first()
+                user_id = default_user[0]
+                conn.execute(text("ALTER TABLE vehicles ADD COLUMN user_id INTEGER"))
+                conn.execute(
+                    text("UPDATE vehicles SET user_id = :user_id WHERE user_id IS NULL"),
+                    {"user_id": user_id},
+                )
+
+        if "trips" in table_names:
+            # refresh columns after possible earlier alters in same process
+            inspector = inspect(engine)
+            trip_columns = {column["name"] for column in inspector.get_columns("trips")}
+            alterations: list[str] = []
+            if "name" not in trip_columns:
+                alterations.append("ALTER TABLE trips ADD COLUMN name VARCHAR(160) DEFAULT ''")
+            if "departure" not in trip_columns:
+                alterations.append(
+                    "ALTER TABLE trips ADD COLUMN departure VARCHAR(160) DEFAULT ''"
+                )
+            if "arrival" not in trip_columns:
+                alterations.append(
+                    "ALTER TABLE trips ADD COLUMN arrival VARCHAR(160) DEFAULT ''"
+                )
+            if "trip_date" not in trip_columns:
+                alterations.append("ALTER TABLE trips ADD COLUMN trip_date TIMESTAMP")
+            if "energy_used" not in trip_columns:
+                alterations.append("ALTER TABLE trips ADD COLUMN energy_used FLOAT DEFAULT 0")
+            if "co2_kg" not in trip_columns:
+                alterations.append("ALTER TABLE trips ADD COLUMN co2_kg FLOAT DEFAULT 0")
+            for statement in alterations:
+                conn.execute(text(statement))
+            if "trip_date" not in trip_columns:
+                conn.execute(
+                    text("UPDATE trips SET trip_date = created_at WHERE trip_date IS NULL")
+                )
 
 
 @app.on_event("startup")
@@ -90,6 +118,87 @@ def build_stats(trips: list[Trip]) -> dict:
     }
 
 
+def list_users(db: Session) -> list[User]:
+    return list(db.scalars(select(User).order_by(User.name)).all())
+
+
+def get_active_user(request: Request, db: Session) -> User | None:
+    users = list_users(db)
+    if not users:
+        return None
+    cookie = request.cookies.get(ACTIVE_USER_COOKIE)
+    if cookie and cookie.isdigit():
+        user = db.get(User, int(cookie))
+        if user:
+            return user
+    return users[0]
+
+
+def set_active_user_cookie(response: Response, user_id: int) -> None:
+    response.set_cookie(
+        key=ACTIVE_USER_COOKIE,
+        value=str(user_id),
+        max_age=60 * 60 * 24 * 365,
+        httponly=False,
+        samesite="lax",
+    )
+
+
+def user_context(request: Request, db: Session, **extra):
+    users = list_users(db)
+    active_user = get_active_user(request, db)
+    return {
+        "users": users,
+        "active_user": active_user,
+        **extra,
+    }
+
+
+def render(
+    request: Request,
+    template_name: str,
+    db: Session,
+    context: dict | None = None,
+    status_code: int = 200,
+):
+    payload = user_context(request, db, **(context or {}))
+    return templates.TemplateResponse(
+        request,
+        template_name,
+        payload,
+        status_code=status_code,
+    )
+
+
+def redirect_with_user(url: str, user_id: int | None = None) -> RedirectResponse:
+    response = RedirectResponse(url=url, status_code=303)
+    if user_id is not None:
+        set_active_user_cookie(response, user_id)
+    return response
+
+
+def require_user_or_redirect(request: Request, db: Session) -> User | RedirectResponse:
+    user = get_active_user(request, db)
+    if user is None:
+        return RedirectResponse(url="/users", status_code=303)
+    return user
+
+
+def user_vehicles(db: Session, user: User) -> list[Vehicle]:
+    return list(
+        db.scalars(
+            select(Vehicle).where(Vehicle.user_id == user.id).order_by(Vehicle.name)
+        ).all()
+    )
+
+
+def get_owned_vehicle(db: Session, user: User, vehicle_id: int) -> Vehicle | None:
+    vehicle = db.get(Vehicle, vehicle_id)
+    if not vehicle or vehicle.user_id != user.id:
+        return None
+    return vehicle
+
+
 def default_form(vehicle_id: int | None = None) -> dict:
     return {
         "name": "",
@@ -116,70 +225,6 @@ def selected_vehicle(vehicles: list[Vehicle], vehicle_id: int | None) -> Vehicle
         if vehicle.id == vehicle_id:
             return vehicle
     return vehicles[0] if vehicles else None
-
-
-def render_trip_form(
-    request: Request,
-    *,
-    db: Session,
-    form: dict,
-    error: str | None = None,
-    costs: TripCosts | None = None,
-    comment: str | None = None,
-    status_code: int = 200,
-):
-    vehicles = db.scalars(select(Vehicle).order_by(Vehicle.name)).all()
-    selected = form.get("vehicle_id")
-    selected_vehicle_id = int(selected) if str(selected).isdigit() else None
-    current = selected_vehicle(list(vehicles), selected_vehicle_id)
-    profile = get_fuel_profile(current.fuel_type) if current else get_fuel_profile("Essence")
-    return templates.TemplateResponse(
-        request,
-        "trip_form.html",
-        {
-            "vehicles": vehicles,
-            "selected_vehicle_id": current.id if current else None,
-            "selected_profile": profile,
-            "error": error,
-            "form": form,
-            "costs": costs,
-            "comment": comment,
-        },
-        status_code=status_code,
-    )
-
-
-@app.get("/")
-def dashboard(request: Request, db: Session = Depends(get_db)):
-    vehicles = db.scalars(select(Vehicle).order_by(Vehicle.name)).all()
-    trips = db.scalars(select(Trip).order_by(Trip.trip_date.desc(), Trip.id.desc())).all()
-    recent_trips = db.scalars(
-        select(Trip)
-        .options(joinedload(Trip.vehicle))
-        .order_by(Trip.trip_date.desc(), Trip.id.desc())
-        .limit(5)
-    ).unique().all()
-    stats = build_stats(list(trips))
-    return templates.TemplateResponse(
-        request,
-        "index.html",
-        {
-            "vehicles": vehicles,
-            "stats": stats,
-            "recent_trips": recent_trips,
-            "vehicle_count": len(vehicles),
-        },
-    )
-
-
-@app.get("/vehicles")
-def vehicles_page(request: Request, db: Session = Depends(get_db)):
-    vehicles = db.scalars(select(Vehicle).order_by(Vehicle.name)).all()
-    return templates.TemplateResponse(
-        request,
-        "vehicles.html",
-        fuel_page_context(vehicles=vehicles, error=None),
-    )
 
 
 def validate_vehicle_form(
@@ -210,6 +255,197 @@ def fuel_page_context(**extra):
     }
 
 
+def render_trip_form(
+    request: Request,
+    *,
+    db: Session,
+    user: User,
+    form: dict,
+    error: str | None = None,
+    costs: TripCosts | None = None,
+    comment: str | None = None,
+    status_code: int = 200,
+):
+    vehicles = user_vehicles(db, user)
+    selected = form.get("vehicle_id")
+    selected_vehicle_id = int(selected) if str(selected).isdigit() else None
+    current = selected_vehicle(vehicles, selected_vehicle_id)
+    profile = get_fuel_profile(current.fuel_type) if current else get_fuel_profile("Essence")
+    return render(
+        request,
+        "trip_form.html",
+        db,
+        {
+            "vehicles": vehicles,
+            "selected_vehicle_id": current.id if current else None,
+            "selected_profile": profile,
+            "error": error,
+            "form": form,
+            "costs": costs,
+            "comment": comment,
+        },
+        status_code=status_code,
+    )
+
+
+@app.get("/")
+def dashboard(request: Request, db: Session = Depends(get_db)):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    vehicles = user_vehicles(db, user)
+    vehicle_ids = [vehicle.id for vehicle in vehicles]
+    trips: list[Trip] = []
+    recent_trips: list[Trip] = []
+    if vehicle_ids:
+        trips = list(
+            db.scalars(
+                select(Trip)
+                .where(Trip.vehicle_id.in_(vehicle_ids))
+                .order_by(Trip.trip_date.desc(), Trip.id.desc())
+            ).all()
+        )
+        recent_trips = list(
+            db.scalars(
+                select(Trip)
+                .options(joinedload(Trip.vehicle))
+                .where(Trip.vehicle_id.in_(vehicle_ids))
+                .order_by(Trip.trip_date.desc(), Trip.id.desc())
+                .limit(5)
+            )
+            .unique()
+            .all()
+        )
+
+    stats = build_stats(trips)
+    return render(
+        request,
+        "index.html",
+        db,
+        {
+            "vehicles": vehicles,
+            "stats": stats,
+            "recent_trips": recent_trips,
+            "vehicle_count": len(vehicles),
+        },
+    )
+
+
+@app.get("/users")
+def users_page(request: Request, db: Session = Depends(get_db)):
+    return render(request, "users.html", db, {"error": None, "edit_user": None})
+
+
+@app.post("/users")
+def create_user(
+    request: Request,
+    name: str = Form(...),
+    tagline: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    if not name.strip():
+        return render(
+            request,
+            "users.html",
+            db,
+            {"error": "Le nom est obligatoire.", "edit_user": None},
+            status_code=400,
+        )
+
+    user = User(name=name.strip(), tagline=tagline.strip())
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return redirect_with_user("/", user.id)
+
+
+@app.post("/users/{user_id}/switch")
+def switch_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    return redirect_with_user("/", user.id)
+
+
+@app.get("/users/{user_id}/edit")
+def edit_user_page(user_id: int, request: Request, db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    return render(request, "users.html", db, {"error": None, "edit_user": user})
+
+
+@app.post("/users/{user_id}/edit")
+def update_user(
+    user_id: int,
+    request: Request,
+    name: str = Form(...),
+    tagline: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if not name.strip():
+        return render(
+            request,
+            "users.html",
+            db,
+            {"error": "Le nom est obligatoire.", "edit_user": user},
+            status_code=400,
+        )
+    user.name = name.strip()
+    user.tagline = tagline.strip()
+    db.commit()
+    return redirect_with_user("/users", user.id)
+
+
+@app.get("/users/{user_id}/delete")
+def delete_user_confirm(user_id: int, request: Request, db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    vehicle_count = len(user_vehicles(db, user))
+    return render(
+        request,
+        "user_delete.html",
+        db,
+        {"target_user": user, "vehicle_count": vehicle_count},
+    )
+
+
+@app.post("/users/{user_id}/delete")
+def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    db.delete(user)
+    db.commit()
+
+    remaining = list_users(db)
+    response = RedirectResponse(url="/users" if not remaining else "/", status_code=303)
+    if remaining:
+        set_active_user_cookie(response, remaining[0].id)
+    else:
+        response.delete_cookie(ACTIVE_USER_COOKIE)
+    return response
+
+
+@app.get("/vehicles")
+def vehicles_page(request: Request, db: Session = Depends(get_db)):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicles = user_vehicles(db, user)
+    return render(
+        request,
+        "vehicles.html",
+        db,
+        fuel_page_context(vehicles=vehicles, error=None),
+    )
+
+
 @app.post("/vehicles")
 def create_vehicle(
     request: Request,
@@ -221,6 +457,10 @@ def create_vehicle(
     amortization_per_km: float = Form(0.0),
     db: Session = Depends(get_db),
 ):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+
     error = validate_vehicle_form(
         name=name,
         model=model,
@@ -231,15 +471,17 @@ def create_vehicle(
     )
 
     if error:
-        vehicles = db.scalars(select(Vehicle).order_by(Vehicle.name)).all()
-        return templates.TemplateResponse(
+        vehicles = user_vehicles(db, user)
+        return render(
             request,
             "vehicles.html",
+            db,
             fuel_page_context(vehicles=vehicles, error=error),
             status_code=400,
         )
 
     vehicle = Vehicle(
+        user_id=user.id,
         name=name.strip(),
         model=model.strip(),
         consumption_l_per_100km=consumption_l_per_100km,
@@ -254,7 +496,10 @@ def create_vehicle(
 
 @app.get("/vehicles/{vehicle_id}")
 def vehicle_detail(vehicle_id: int, request: Request, db: Session = Depends(get_db)):
-    vehicle = db.get(Vehicle, vehicle_id)
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
     if not vehicle:
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
 
@@ -265,9 +510,10 @@ def vehicle_detail(vehicle_id: int, request: Request, db: Session = Depends(get_
     ).all()
     stats = build_stats(list(trips))
     profile = get_fuel_profile(vehicle.fuel_type)
-    return templates.TemplateResponse(
+    return render(
         request,
         "vehicle_detail.html",
+        db,
         {
             "vehicle": vehicle,
             "trips": trips,
@@ -279,12 +525,16 @@ def vehicle_detail(vehicle_id: int, request: Request, db: Session = Depends(get_
 
 @app.get("/vehicles/{vehicle_id}/edit")
 def edit_vehicle_page(vehicle_id: int, request: Request, db: Session = Depends(get_db)):
-    vehicle = db.get(Vehicle, vehicle_id)
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
     if not vehicle:
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
-    return templates.TemplateResponse(
+    return render(
         request,
         "vehicle_edit.html",
+        db,
         fuel_page_context(vehicle=vehicle, error=None),
     )
 
@@ -301,7 +551,10 @@ def update_vehicle(
     amortization_per_km: float = Form(0.0),
     db: Session = Depends(get_db),
 ):
-    vehicle = db.get(Vehicle, vehicle_id)
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
     if not vehicle:
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
 
@@ -320,9 +573,10 @@ def update_vehicle(
         vehicle.fuel_type = fuel_type
         vehicle.maintenance_per_km = maintenance_per_km
         vehicle.amortization_per_km = amortization_per_km
-        return templates.TemplateResponse(
+        return render(
             request,
             "vehicle_edit.html",
+            db,
             fuel_page_context(vehicle=vehicle, error=error),
             status_code=400,
         )
@@ -339,25 +593,32 @@ def update_vehicle(
 
 @app.get("/vehicles/{vehicle_id}/delete")
 def delete_vehicle_confirm(vehicle_id: int, request: Request, db: Session = Depends(get_db)):
-    vehicle = db.get(Vehicle, vehicle_id)
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
     if not vehicle:
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
-    trip_count = db.scalars(
-        select(Trip).where(Trip.vehicle_id == vehicle_id)
-    ).all()
-    return templates.TemplateResponse(
+    trip_count = len(
+        list(db.scalars(select(Trip).where(Trip.vehicle_id == vehicle_id)).all())
+    )
+    return render(
         request,
         "vehicle_delete.html",
+        db,
         {
             "vehicle": vehicle,
-            "trip_count": len(trip_count),
+            "trip_count": trip_count,
         },
     )
 
 
 @app.post("/vehicles/{vehicle_id}/delete")
-def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
-    vehicle = db.get(Vehicle, vehicle_id)
+def delete_vehicle(vehicle_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
     if not vehicle:
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
     db.delete(vehicle)
@@ -366,8 +627,15 @@ def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/trips/new")
-def new_trip_page(request: Request, db: Session = Depends(get_db), vehicle_id: int | None = None):
-    return render_trip_form(request, db=db, form=default_form(vehicle_id))
+def new_trip_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    vehicle_id: int | None = None,
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    return render_trip_form(request, db=db, user=user, form=default_form(vehicle_id))
 
 
 @app.post("/trips/new")
@@ -385,6 +653,10 @@ def submit_trip(
     passengers: int = Form(1),
     db: Session = Depends(get_db),
 ):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+
     form = {
         "name": name,
         "departure": departure,
@@ -401,6 +673,7 @@ def submit_trip(
         return render_trip_form(
             request,
             db=db,
+            user=user,
             form=form,
             error="Action invalide.",
             status_code=400,
@@ -410,6 +683,7 @@ def submit_trip(
         return render_trip_form(
             request,
             db=db,
+            user=user,
             form=form,
             error="Le nom, le départ et l’arrivée sont obligatoires.",
             status_code=400,
@@ -421,16 +695,18 @@ def submit_trip(
         return render_trip_form(
             request,
             db=db,
+            user=user,
             form=form,
             error="La date du trajet est invalide.",
             status_code=400,
         )
 
-    vehicle = db.get(Vehicle, vehicle_id)
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
     if not vehicle:
         return render_trip_form(
             request,
             db=db,
+            user=user,
             form=form,
             error="Véhicule introuvable.",
             status_code=400,
@@ -451,6 +727,7 @@ def submit_trip(
         return render_trip_form(
             request,
             db=db,
+            user=user,
             form=form,
             error=str(exc),
             status_code=400,
@@ -470,7 +747,14 @@ def submit_trip(
     )
 
     if action == "calculate":
-        return render_trip_form(request, db=db, form=form, costs=costs, comment=comment)
+        return render_trip_form(
+            request,
+            db=db,
+            user=user,
+            form=form,
+            costs=costs,
+            comment=comment,
+        )
 
     trip = Trip(
         vehicle_id=vehicle.id,

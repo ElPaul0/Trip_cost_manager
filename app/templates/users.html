@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Utilisateurs — Trip Cost Manager{% endblock %}
+{% block content %}
+<section class="section">
+  <h1>{% if edit_user %}Modifier {{ edit_user.name }}{% else %}Utilisateurs{% endif %}</h1>
+  <p class="section-lead">
+    {% if edit_user %}
+      Mettez à jour le nom et la légende de cet utilisateur.
+    {% else %}
+      Créez des profils et basculez entre eux. Chaque utilisateur a ses propres véhicules et stats.
+    {% endif %}
+  </p>
+
+  {% if error %}
+  <p class="alert">{{ error }}</p>
+  {% endif %}
+
+  {% if edit_user %}
+  <form method="post" action="/users/{{ edit_user.id }}/edit" class="form-grid">
+    <label>
+      Nom
+      <input type="text" name="name" required value="{{ edit_user.name }}" maxlength="120">
+    </label>
+    <label class="full">
+      Légende
+      <input type="text" name="tagline" value="{{ edit_user.tagline }}" maxlength="240" placeholder="Ex. Road trips du week-end">
+      <span class="hint">Petite phrase affichée sous le nom, comme un sous-titre.</span>
+    </label>
+    <div class="form-actions full">
+      <button type="submit" class="btn primary">Enregistrer</button>
+      <a class="btn ghost" href="/users">Annuler</a>
+    </div>
+  </form>
+  {% else %}
+  <form method="post" action="/users" class="form-grid">
+    <label>
+      Nom
+      <input type="text" name="name" required maxlength="120" placeholder="Ex. Alice">
+    </label>
+    <label class="full">
+      Légende
+      <input type="text" name="tagline" maxlength="240" placeholder="Ex. Trajets maison ↔ boulot">
+      <span class="hint">Petite phrase affichée sous le nom, comme un sous-titre.</span>
+    </label>
+    <div class="form-actions full">
+      <button type="submit" class="btn primary">Créer et activer</button>
+    </div>
+  </form>
+  {% endif %}
+</section>
+
+{% if not edit_user %}
+<section class="section">
+  <h2>Profils</h2>
+  {% if users %}
+  <ul class="user-list">
+    {% for user in users %}
+    <li class="{% if active_user and active_user.id == user.id %}is-active{% endif %}">
+      <div class="user-list-main">
+        <span class="vehicle-name">{{ user.name }}</span>
+        {% if user.tagline %}
+        <span class="vehicle-meta">{{ user.tagline }}</span>
+        {% else %}
+        <span class="vehicle-meta">Sans légende</span>
+        {% endif %}
+      </div>
+      <div class="user-list-actions">
+        {% if active_user and active_user.id == user.id %}
+        <span class="badge">Actif</span>
+        {% else %}
+        <form method="post" action="/users/{{ user.id }}/switch" class="inline-form">
+          <button type="submit" class="btn ghost">Activer</button>
+        </form>
+        {% endif %}
+        <a class="btn ghost" href="/users/{{ user.id }}/edit">Modifier</a>
+        <a class="btn danger" href="/users/{{ user.id }}/delete">Supprimer</a>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">Aucun utilisateur pour l’instant. Créez le premier profil ci-dessus.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

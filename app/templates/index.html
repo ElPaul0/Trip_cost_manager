@@ -3,8 +3,17 @@
 {% block content %}
 <section class="hero">
   <p class="brand-mark">Trip Cost Manager</p>
+  {% if active_user %}
+  <h1>{{ active_user.name }}</h1>
+  {% if active_user.tagline %}
+  <p class="lead">{{ active_user.tagline }}</p>
+  {% else %}
+  <p class="lead">Combien coûtent vraiment vos trajets&nbsp;?</p>
+  {% endif %}
+  {% else %}
   <h1>Combien coûte vraiment ce trajet&nbsp;?</h1>
-  <p class="lead">Choisissez un véhicule, saisissez distance et carburant, archivez le résultat pour suivre vos coûts dans le temps.</p>
+  <p class="lead">Créez un utilisateur pour commencer.</p>
+  {% endif %}
   <div class="actions">
     <a class="btn primary" href="/trips/new">Ajouter un trajet</a>
     <a class="btn ghost" href="/vehicles">Gérer les véhicules</a>
@@ -13,7 +22,13 @@
 
 <section class="section">
   <h2>Vue d’ensemble</h2>
-  <p class="section-lead">Un aperçu rapide de votre activité.</p>
+  <p class="section-lead">
+    {% if active_user %}
+      Activité de <strong>{{ active_user.name }}</strong> uniquement.
+    {% else %}
+      Un aperçu rapide de votre activité.
+    {% endif %}
+  </p>
   <dl class="stat-row">
     <div>
       <dt>Véhicules</dt>
@@ -71,7 +86,7 @@
     </table>
   </div>
   {% else %}
-  <p class="empty">Aucun trajet pour l’instant. Commencez par créer un véhicule, puis ajoutez votre premier trajet.</p>
+  <p class="empty">Aucun trajet pour cet utilisateur. Créez un véhicule, puis ajoutez un trajet.</p>
   {% endif %}
 </section>
 {% endblock %}

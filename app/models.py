@@ -10,10 +10,27 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    tagline: Mapped[str] = mapped_column(String(240), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    vehicles: Mapped[list["Vehicle"]] = relationship(
+        "Vehicle",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        order_by="Vehicle.name",
+    )
+
+
 class Vehicle(Base):
     __tablename__ = "vehicles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     model: Mapped[str] = mapped_column(String(120), nullable=False)
     consumption_l_per_100km: Mapped[float] = mapped_column(Float, nullable=False)
@@ -22,6 +39,7 @@ class Vehicle(Base):
     amortization_per_km: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    owner: Mapped["User"] = relationship("User", back_populates="vehicles")
     trips: Mapped[list["Trip"]] = relationship(
         "Trip",
         back_populates="vehicle",
