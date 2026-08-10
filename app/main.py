@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.comments import trip_comment
 from app.database import Base, engine, get_db
 from app.fuels import FUEL_TYPES, consumption_unit_label, get_fuel_profile
-from app.models import Trip, User, Vehicle
+from app.models import MaintenanceOp, Trip, User, Vehicle
 from app.schemas import TripCosts, calculate_trip_costs
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -197,6 +197,73 @@ def get_owned_vehicle(db: Session, user: User, vehicle_id: int) -> Vehicle | Non
     if not vehicle or vehicle.user_id != user.id:
         return None
     return vehicle
+
+
+def get_owned_maintenance_op(
+    db: Session, user: User, vehicle_id: int, op_id: int
+) -> tuple[Vehicle, MaintenanceOp] | None:
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
+    if not vehicle:
+        return None
+    operation = db.get(MaintenanceOp, op_id)
+    if not operation or operation.vehicle_id != vehicle.id:
+        return None
+    return vehicle, operation
+
+
+def list_maintenance_ops(db: Session, vehicle_id: int) -> list[MaintenanceOp]:
+    return list(
+        db.scalars(
+            select(MaintenanceOp)
+            .where(MaintenanceOp.vehicle_id == vehicle_id)
+            .order_by(MaintenanceOp.operation_date.desc(), MaintenanceOp.id.desc())
+        ).all()
+    )
+
+
+def maintenance_stats(operations: list[MaintenanceOp]) -> dict:
+    total_spent = round(sum(op.price for op in operations), 2)
+    last_mileage = max((op.mileage_km for op in operations), default=None)
+    return {
+        "op_count": len(operations),
+        "total_spent": total_spent,
+        "last_mileage": round(last_mileage, 1) if last_mileage is not None else None,
+    }
+
+
+def default_maintenance_form() -> dict:
+    return {
+        "name": "",
+        "operation_date": date.today().isoformat(),
+        "mileage_km": "",
+        "price": "0",
+        "parts_url": "",
+        "comments": "",
+    }
+
+
+def validate_maintenance_form(
+    *,
+    name: str,
+    operation_date: str,
+    mileage_km: float,
+    price: float,
+    parts_url: str,
+) -> tuple[str | None, datetime | None]:
+    if not name.strip():
+        return "Le nom de l’opération est obligatoire.", None
+    try:
+        parsed_date = parse_trip_date(operation_date)
+    except ValueError:
+        return "La date est invalide.", None
+    if mileage_km < 0:
+        return "Le kilométrage ne peut pas être négatif.", None
+    if price < 0:
+        return "Le prix ne peut pas être négatif.", None
+    url = parts_url.strip()
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        return "Le lien pièce doit commencer par http:// ou https://.", None
+    return None, parsed_date
 
 
 def default_form(vehicle_id: int | None = None) -> dict:
@@ -777,3 +844,226 @@ def submit_trip(
     db.add(trip)
     db.commit()
     return RedirectResponse(url=f"/vehicles/{vehicle.id}", status_code=303)
+
+
+@app.get("/vehicles/{vehicle_id}/maintenance")
+def maintenance_page(vehicle_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Véhicule introuvable")
+
+    operations = list_maintenance_ops(db, vehicle_id)
+    return render(
+        request,
+        "maintenance.html",
+        db,
+        {
+            "vehicle": vehicle,
+            "operations": operations,
+            "stats": maintenance_stats(operations),
+            "form": default_maintenance_form(),
+            "error": None,
+        },
+    )
+
+
+@app.post("/vehicles/{vehicle_id}/maintenance")
+def create_maintenance_op(
+    vehicle_id: int,
+    request: Request,
+    name: str = Form(...),
+    operation_date: str = Form(...),
+    mileage_km: float = Form(...),
+    price: float = Form(0.0),
+    parts_url: str = Form(""),
+    comments: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Véhicule introuvable")
+
+    form = {
+        "name": name,
+        "operation_date": operation_date,
+        "mileage_km": mileage_km,
+        "price": price,
+        "parts_url": parts_url,
+        "comments": comments,
+    }
+    error, parsed_date = validate_maintenance_form(
+        name=name,
+        operation_date=operation_date,
+        mileage_km=mileage_km,
+        price=price,
+        parts_url=parts_url,
+    )
+    operations = list_maintenance_ops(db, vehicle_id)
+    if error:
+        return render(
+            request,
+            "maintenance.html",
+            db,
+            {
+                "vehicle": vehicle,
+                "operations": operations,
+                "stats": maintenance_stats(operations),
+                "form": form,
+                "error": error,
+            },
+            status_code=400,
+        )
+
+    operation = MaintenanceOp(
+        vehicle_id=vehicle.id,
+        name=name.strip(),
+        operation_date=parsed_date,
+        mileage_km=mileage_km,
+        price=price,
+        parts_url=parts_url.strip(),
+        comments=comments.strip(),
+    )
+    db.add(operation)
+    db.commit()
+    return RedirectResponse(url=f"/vehicles/{vehicle.id}/maintenance", status_code=303)
+
+
+@app.get("/vehicles/{vehicle_id}/maintenance/{op_id}/edit")
+def edit_maintenance_page(
+    vehicle_id: int,
+    op_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_maintenance_op(db, user, vehicle_id, op_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Opération introuvable")
+    vehicle, operation = owned
+    return render(
+        request,
+        "maintenance_edit.html",
+        db,
+        {
+            "vehicle": vehicle,
+            "operation": operation,
+            "form": {
+                "name": operation.name,
+                "operation_date": operation.operation_date.date().isoformat(),
+                "mileage_km": operation.mileage_km,
+                "price": operation.price,
+                "parts_url": operation.parts_url,
+                "comments": operation.comments,
+            },
+            "error": None,
+        },
+    )
+
+
+@app.post("/vehicles/{vehicle_id}/maintenance/{op_id}/edit")
+def update_maintenance_op(
+    vehicle_id: int,
+    op_id: int,
+    request: Request,
+    name: str = Form(...),
+    operation_date: str = Form(...),
+    mileage_km: float = Form(...),
+    price: float = Form(0.0),
+    parts_url: str = Form(""),
+    comments: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_maintenance_op(db, user, vehicle_id, op_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Opération introuvable")
+    vehicle, operation = owned
+
+    form = {
+        "name": name,
+        "operation_date": operation_date,
+        "mileage_km": mileage_km,
+        "price": price,
+        "parts_url": parts_url,
+        "comments": comments,
+    }
+    error, parsed_date = validate_maintenance_form(
+        name=name,
+        operation_date=operation_date,
+        mileage_km=mileage_km,
+        price=price,
+        parts_url=parts_url,
+    )
+    if error:
+        return render(
+            request,
+            "maintenance_edit.html",
+            db,
+            {
+                "vehicle": vehicle,
+                "operation": operation,
+                "form": form,
+                "error": error,
+            },
+            status_code=400,
+        )
+
+    operation.name = name.strip()
+    operation.operation_date = parsed_date
+    operation.mileage_km = mileage_km
+    operation.price = price
+    operation.parts_url = parts_url.strip()
+    operation.comments = comments.strip()
+    db.commit()
+    return RedirectResponse(url=f"/vehicles/{vehicle.id}/maintenance", status_code=303)
+
+
+@app.get("/vehicles/{vehicle_id}/maintenance/{op_id}/delete")
+def delete_maintenance_confirm(
+    vehicle_id: int,
+    op_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_maintenance_op(db, user, vehicle_id, op_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Opération introuvable")
+    vehicle, operation = owned
+    return render(
+        request,
+        "maintenance_delete.html",
+        db,
+        {"vehicle": vehicle, "operation": operation},
+    )
+
+
+@app.post("/vehicles/{vehicle_id}/maintenance/{op_id}/delete")
+def delete_maintenance_op(
+    vehicle_id: int,
+    op_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_maintenance_op(db, user, vehicle_id, op_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Opération introuvable")
+    vehicle, operation = owned
+    db.delete(operation)
+    db.commit()
+    return RedirectResponse(url=f"/vehicles/{vehicle.id}/maintenance", status_code=303)

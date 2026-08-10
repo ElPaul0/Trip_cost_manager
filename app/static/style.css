@@ -443,7 +443,8 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   padding: 0.7rem 0.85rem;
   border: 1px solid var(--line);
@@ -451,12 +452,26 @@ select {
   background: var(--surface);
   color: var(--ink);
   backdrop-filter: blur(6px);
+  font: inherit;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 5.5rem;
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 2px solid rgba(196, 92, 38, 0.35);
   border-color: var(--accent);
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  white-space: nowrap;
 }
 
 .hint {

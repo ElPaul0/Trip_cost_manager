@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Supprimer opération — {{ vehicle.name }}{% endblock %}
+{% block content %}
+<section class="section">
+  <p class="eyebrow"><a href="/vehicles/{{ vehicle.id }}/maintenance">← Carnet d’entretien</a></p>
+  <h1>Êtes-vous sûr&nbsp;?</h1>
+  <p class="section-lead">
+    Supprimer l’opération <strong>{{ operation.name }}</strong>
+    du {{ operation.operation_date.strftime("%d/%m/%Y") }}
+    ({{ "%.1f"|format(operation.mileage_km) }} km · {{ operation.price|euro }})
+    pour {{ vehicle.name }} ?
+  </p>
+  <p class="alert">Cette action est irréversible.</p>
+  <div class="actions">
+    <form method="post" action="/vehicles/{{ vehicle.id }}/maintenance/{{ operation.id }}/delete" class="inline-form">
+      <button type="submit" class="btn danger">Oui, supprimer</button>
+    </form>
+    <a class="btn ghost" href="/vehicles/{{ vehicle.id }}/maintenance">Non, annuler</a>
+  </div>
+</section>
+{% endblock %}

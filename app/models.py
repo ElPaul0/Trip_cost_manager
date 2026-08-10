@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -46,6 +46,28 @@ class Vehicle(Base):
         cascade="all, delete-orphan",
         order_by="desc(Trip.trip_date)",
     )
+    maintenance_ops: Mapped[list["MaintenanceOp"]] = relationship(
+        "MaintenanceOp",
+        back_populates="vehicle",
+        cascade="all, delete-orphan",
+        order_by="desc(MaintenanceOp.operation_date)",
+    )
+
+
+class MaintenanceOp(Base):
+    __tablename__ = "maintenance_ops"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    operation_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    mileage_km: Mapped[float] = mapped_column(Float, nullable=False)
+    price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    parts_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    comments: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    vehicle: Mapped["Vehicle"] = relationship("Vehicle", back_populates="maintenance_ops")
 
 
 class Trip(Base):

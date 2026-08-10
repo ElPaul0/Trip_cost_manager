@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Entretien — {{ vehicle.name }}{% endblock %}
+{% block content %}
+<section class="section">
+  <p class="eyebrow"><a href="/vehicles/{{ vehicle.id }}">← {{ vehicle.name }}</a></p>
+  <h1>Carnet d’entretien</h1>
+  <p class="section-lead">{{ vehicle.name }} · {{ vehicle.model }}</p>
+
+  <dl class="stat-row">
+    <div>
+      <dt>Opérations</dt>
+      <dd>{{ stats.op_count }}</dd>
+    </div>
+    <div>
+      <dt>Total dépensé</dt>
+      <dd>{{ stats.total_spent|euro }}</dd>
+    </div>
+    <div>
+      <dt>Dernier kilométrage</dt>
+      <dd>
+        {% if stats.last_mileage is not none %}
+          {{ "%.1f"|format(stats.last_mileage) }} km
+        {% else %}
+          —
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+</section>
+
+<section class="section">
+  <h2>Ajouter une opération</h2>
+  {% if error %}
+  <p class="alert">{{ error }}</p>
+  {% endif %}
+  <form method="post" action="/vehicles/{{ vehicle.id }}/maintenance" class="form-grid">
+    <label>
+      Nom
+      <input type="text" name="name" required value="{{ form.name }}" placeholder="Ex. Vidange + filtre à huile">
+    </label>
+    <label>
+      Date
+      <input type="date" name="operation_date" required value="{{ form.operation_date }}">
+    </label>
+    <label>
+      Kilométrage (km)
+      <input type="number" name="mileage_km" step="0.1" min="0" required value="{{ form.mileage_km }}" placeholder="125000">
+    </label>
+    <label>
+      Prix (€)
+      <input type="number" name="price" step="0.01" min="0" required value="{{ form.price }}">
+    </label>
+    <label class="full">
+      Lien pièce / produit (optionnel)
+      <input type="url" name="parts_url" value="{{ form.parts_url }}" placeholder="https://...">
+    </label>
+    <label class="full">
+      Commentaires
+      <textarea name="comments" rows="3" placeholder="Notes, garage, références…">{{ form.comments }}</textarea>
+    </label>
+    <div class="form-actions full">
+      <button type="submit" class="btn primary">Ajouter l’opération</button>
+    </div>
+  </form>
+</section>
+
+<section class="section">
+  <h2>Historique</h2>
+  {% if operations %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Opération</th>
+          <th>Km</th>
+          <th>Prix</th>
+          <th>Lien</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for op in operations %}
+        <tr>
+          <td>{{ op.operation_date.strftime("%d/%m/%Y") }}</td>
+          <td>
+            <strong>{{ op.name }}</strong>
+            {% if op.comments %}
+            <div class="table-sub">{{ op.comments }}</div>
+            {% endif %}
+          </td>
+          <td>{{ "%.1f"|format(op.mileage_km) }} km</td>
+          <td>{{ op.price|euro }}</td>
+          <td>
+            {% if op.parts_url %}
+            <a href="{{ op.parts_url }}" target="_blank" rel="noopener noreferrer">Pièce</a>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+          <td class="table-actions">
+            <a href="/vehicles/{{ vehicle.id }}/maintenance/{{ op.id }}/edit">Modifier</a>
+            <a href="/vehicles/{{ vehicle.id }}/maintenance/{{ op.id }}/delete">Supprimer</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">Aucune opération enregistrée pour l’instant.</p>
+  {% endif %}
+</section>
+{% endblock %}
