@@ -65,6 +65,10 @@
 
     <div class="gps-panel full" id="gps-panel" hidden>
       <button type="button" class="btn ghost" id="route-btn">Calculer l’itinéraire (distance + péages)</button>
+      <label class="roundtrip-toggle">
+        <input type="checkbox" id="roundtrip-check">
+        <span>Aller-retour (×2)</span>
+      </label>
       <p class="hint" id="route-status">Choisissez un départ et une arrivée dans les suggestions, puis calculez l’itinéraire.</p>
     </div>
 
@@ -206,6 +210,7 @@
     const gpsPanel = document.getElementById("gps-panel");
     const routeBtn = document.getElementById("route-btn");
     const routeStatus = document.getElementById("route-status");
+    const roundtripCheck = document.getElementById("roundtrip-check");
     const distanceInput = document.getElementById("distance-input");
     const tollsInput = document.getElementById("tolls-input");
     const distanceHint = document.getElementById("distance-hint");
@@ -341,9 +346,14 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Erreur itinéraire");
-        distanceInput.value = data.distance_km;
-        tollsInput.value = data.tolls_eur;
-        routeStatus.textContent = `Itinéraire OK — ${data.distance_km} km · péages ${Number(data.tolls_eur).toFixed(2)} € · ${formatDuration(data.duration_seconds)}. Vous pouvez encore ajuster avant de calculer le coût.`;
+        const multiplier = roundtripCheck && roundtripCheck.checked ? 2 : 1;
+        const distanceKm = Math.round(data.distance_km * multiplier * 10) / 10;
+        const tollsEur = Math.round(data.tolls_eur * multiplier * 100) / 100;
+        const durationSec = data.duration_seconds * multiplier;
+        distanceInput.value = distanceKm;
+        tollsInput.value = tollsEur;
+        const tripLabel = multiplier === 2 ? "Aller-retour" : "Aller simple";
+        routeStatus.textContent = `${tripLabel} OK — ${distanceKm} km · péages ${tollsEur.toFixed(2)} € · ${formatDuration(durationSec)}. Vous pouvez encore ajuster avant de calculer le coût.`;
       } catch (err) {
         routeStatus.textContent = err.message || "Échec du calcul d’itinéraire.";
       } finally {

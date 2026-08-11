@@ -522,6 +522,24 @@ html[data-theme="dark"] .theme-toggle-icon {
   flex: 1 1 16rem;
 }
 
+.roundtrip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 500;
+  font-size: 0.95rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.roundtrip-toggle input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
