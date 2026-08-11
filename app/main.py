@@ -211,6 +211,87 @@ def get_owned_maintenance_op(
     return vehicle, operation
 
 
+def get_owned_trip(
+    db: Session, user: User, vehicle_id: int, trip_id: int
+) -> tuple[Vehicle, Trip] | None:
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
+    if not vehicle:
+        return None
+    trip = db.get(Trip, trip_id)
+    if not trip or trip.vehicle_id != vehicle.id:
+        return None
+    return vehicle, trip
+
+
+def apply_trip_form_to_model(
+    trip: Trip,
+    *,
+    name: str,
+    departure: str,
+    arrival: str,
+    trip_date: datetime,
+    distance_km: float,
+    fuel_price_per_liter: float,
+    tolls: float,
+    passengers: int,
+    vehicle: Vehicle,
+) -> TripCosts:
+    costs = calculate_trip_costs(
+        distance_km=distance_km,
+        consumption_per_100km=vehicle.consumption_l_per_100km,
+        energy_price=fuel_price_per_liter,
+        maintenance_per_km=vehicle.maintenance_per_km,
+        amortization_per_km=vehicle.amortization_per_km,
+        tolls=tolls,
+        passengers=passengers,
+        fuel_type=vehicle.fuel_type,
+    )
+    trip.name = name.strip()
+    trip.departure = departure.strip()
+    trip.arrival = arrival.strip()
+    trip.trip_date = trip_date
+    trip.distance_km = distance_km
+    trip.fuel_price_per_liter = fuel_price_per_liter
+    trip.tolls = tolls
+    trip.passengers = passengers
+    trip.fuel_cost = costs.fuel_cost
+    trip.maintenance_cost = costs.maintenance_cost
+    trip.amortization_cost = costs.amortization_cost
+    trip.total_cost = costs.total_cost
+    trip.cost_per_person = costs.cost_per_person
+    trip.energy_used = costs.energy_used
+    trip.co2_kg = costs.co2_kg
+    return costs
+
+
+def validate_trip_form(
+    *,
+    name: str,
+    departure: str,
+    arrival: str,
+    trip_date: str,
+    distance_km: float,
+    fuel_price_per_liter: float,
+    tolls: float,
+    passengers: int,
+) -> tuple[str | None, datetime | None]:
+    if not name.strip() or not departure.strip() or not arrival.strip():
+        return "Le nom, le départ et l’arrivée sont obligatoires.", None
+    try:
+        parsed_date = parse_trip_date(trip_date)
+    except ValueError:
+        return "La date du trajet est invalide.", None
+    if distance_km <= 0:
+        return "La distance doit être supérieure à 0.", None
+    if fuel_price_per_liter < 0:
+        return "Le prix de l’énergie ne peut pas être négatif.", None
+    if tolls < 0:
+        return "Le coût des péages ne peut pas être négatif.", None
+    if passengers < 1:
+        return "Le nombre de personnes doit être au moins 1.", None
+    return None, parsed_date
+
+
 def list_maintenance_ops(db: Session, vehicle_id: int) -> list[MaintenanceOp]:
     return list(
         db.scalars(
@@ -842,6 +923,176 @@ def submit_trip(
         co2_kg=costs.co2_kg,
     )
     db.add(trip)
+    db.commit()
+    return RedirectResponse(url=f"/vehicles/{vehicle.id}", status_code=303)
+
+
+@app.get("/vehicles/{vehicle_id}/trips/{trip_id}/edit")
+def edit_trip_page(
+    vehicle_id: int,
+    trip_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_trip(db, user, vehicle_id, trip_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Trajet introuvable")
+    vehicle, trip = owned
+    profile = get_fuel_profile(vehicle.fuel_type)
+    return render(
+        request,
+        "trip_edit.html",
+        db,
+        {
+            "vehicle": vehicle,
+            "trip": trip,
+            "profile": profile,
+            "form": {
+                "name": trip.name,
+                "departure": trip.departure,
+                "arrival": trip.arrival,
+                "trip_date": trip.trip_date.date().isoformat(),
+                "distance_km": trip.distance_km,
+                "fuel_price_per_liter": trip.fuel_price_per_liter,
+                "tolls": trip.tolls,
+                "passengers": trip.passengers,
+            },
+            "error": None,
+        },
+    )
+
+
+@app.post("/vehicles/{vehicle_id}/trips/{trip_id}/edit")
+def update_trip(
+    vehicle_id: int,
+    trip_id: int,
+    request: Request,
+    name: str = Form(...),
+    departure: str = Form(...),
+    arrival: str = Form(...),
+    trip_date: str = Form(...),
+    distance_km: float = Form(...),
+    fuel_price_per_liter: float = Form(...),
+    tolls: float = Form(0.0),
+    passengers: int = Form(1),
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_trip(db, user, vehicle_id, trip_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Trajet introuvable")
+    vehicle, trip = owned
+    profile = get_fuel_profile(vehicle.fuel_type)
+
+    form = {
+        "name": name,
+        "departure": departure,
+        "arrival": arrival,
+        "trip_date": trip_date,
+        "distance_km": distance_km,
+        "fuel_price_per_liter": fuel_price_per_liter,
+        "tolls": tolls,
+        "passengers": passengers,
+    }
+    error, parsed_date = validate_trip_form(
+        name=name,
+        departure=departure,
+        arrival=arrival,
+        trip_date=trip_date,
+        distance_km=distance_km,
+        fuel_price_per_liter=fuel_price_per_liter,
+        tolls=tolls,
+        passengers=passengers,
+    )
+    if error:
+        return render(
+            request,
+            "trip_edit.html",
+            db,
+            {
+                "vehicle": vehicle,
+                "trip": trip,
+                "profile": profile,
+                "form": form,
+                "error": error,
+            },
+            status_code=400,
+        )
+
+    try:
+        apply_trip_form_to_model(
+            trip,
+            name=name,
+            departure=departure,
+            arrival=arrival,
+            trip_date=parsed_date,
+            distance_km=distance_km,
+            fuel_price_per_liter=fuel_price_per_liter,
+            tolls=tolls,
+            passengers=passengers,
+            vehicle=vehicle,
+        )
+    except ValueError as exc:
+        return render(
+            request,
+            "trip_edit.html",
+            db,
+            {
+                "vehicle": vehicle,
+                "trip": trip,
+                "profile": profile,
+                "form": form,
+                "error": str(exc),
+            },
+            status_code=400,
+        )
+
+    db.commit()
+    return RedirectResponse(url=f"/vehicles/{vehicle.id}", status_code=303)
+
+
+@app.get("/vehicles/{vehicle_id}/trips/{trip_id}/delete")
+def delete_trip_confirm(
+    vehicle_id: int,
+    trip_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_trip(db, user, vehicle_id, trip_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Trajet introuvable")
+    vehicle, trip = owned
+    return render(
+        request,
+        "trip_delete.html",
+        db,
+        {"vehicle": vehicle, "trip": trip},
+    )
+
+
+@app.post("/vehicles/{vehicle_id}/trips/{trip_id}/delete")
+def delete_trip(
+    vehicle_id: int,
+    trip_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    owned = get_owned_trip(db, user, vehicle_id, trip_id)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Trajet introuvable")
+    vehicle, trip = owned
+    db.delete(trip)
     db.commit()
     return RedirectResponse(url=f"/vehicles/{vehicle.id}", status_code=303)
 

@@ -70,6 +70,7 @@
           <th>CO₂</th>
           <th>Total</th>
           <th>/ pers.</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -86,6 +87,10 @@
           <td>{{ trip.co2_kg|kg }}</td>
           <td>{{ trip.total_cost|euro }}</td>
           <td>{{ trip.cost_per_person|euro }}</td>
+          <td class="table-actions">
+            <a href="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/edit">Modifier</a>
+            <a href="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/delete" class="danger-link">Supprimer</a>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

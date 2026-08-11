@@ -79,7 +79,48 @@ docker compose pull
 docker compose up -d
 ```
 
-### Première publication GHCR
+Les trajets et véhicules restent intacts : la base PostgreSQL vit dans le volume `postgres_data`, que `docker compose up -d` ne touche pas.
+
+**Ne jamais lancer** `docker compose down -v` en production (le `-v` supprime le volume et donc toutes les données).
+
+### Versions d’image et rollback
+
+Chaque version stable peut être publiée avec un tag Git (`v1.0`, `v1.1`, …). GitHub Actions pousse alors l’image correspondante sur GHCR :
+
+| Tag Git | Image Docker |
+|---------|--------------|
+| `v1.0` | `ghcr.io/elpaul0/trip_cost_manager:1.0` |
+| `v1.1` | `ghcr.io/elpaul0/trip_cost_manager:1.1` |
+| push `main` | `ghcr.io/elpaul0/trip_cost_manager:latest` |
+
+**Figurer la version actuelle** (avant une mise à jour) :
+
+```bash
+# Sur le poste de dev — tagger le commit stable
+git tag v1.0
+git push origin v1.0
+```
+
+Sur le serveur, dans `.env` :
+
+```env
+APP_IMAGE=ghcr.io/elpaul0/trip_cost_manager:1.0
+```
+
+**Passer à une nouvelle version** :
+
+```env
+APP_IMAGE=ghcr.io/elpaul0/trip_cost_manager:1.1
+# ou :latest pour suivre main
+```
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+**Revenir en arrière** : remettre `APP_IMAGE=...:1.0` puis `pull` + `up -d`. Les données PostgreSQL ne changent pas.
+
 
 Après le premier run Actions, si le pull échoue avec `unauthorized` / `denied` :
 

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Modifier trajet — {{ vehicle.name }}{% endblock %}
+{% block content %}
+<section class="section">
+  <p class="eyebrow"><a href="/vehicles/{{ vehicle.id }}">← {{ vehicle.name }}</a></p>
+  <h1>Modifier le trajet</h1>
+  <p class="section-lead">
+    {{ vehicle.name }} · {{ vehicle.model }} ({{ vehicle.fuel_type }})
+  </p>
+
+  {% if error %}
+  <p class="alert">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" action="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/edit" class="form-grid">
+    <label>
+      Nom du trajet
+      <input type="text" name="name" required value="{{ form.name }}">
+    </label>
+    <label>
+      Date
+      <input type="date" name="trip_date" required value="{{ form.trip_date }}">
+    </label>
+    <label>
+      Départ
+      <input type="text" name="departure" required value="{{ form.departure }}">
+    </label>
+    <label>
+      Arrivée
+      <input type="text" name="arrival" required value="{{ form.arrival }}">
+    </label>
+    <label>
+      Distance (km)
+      <input type="number" name="distance_km" step="0.1" min="0.1" required value="{{ form.distance_km }}">
+    </label>
+    <label>
+      {{ profile.price_label }}
+      <input type="number" name="fuel_price_per_liter" step="0.001" min="0" required value="{{ form.fuel_price_per_liter }}">
+    </label>
+    <label>
+      Péages (€)
+      <input type="number" name="tolls" step="0.01" min="0" value="{{ form.tolls }}">
+    </label>
+    <label>
+      Nombre de personnes
+      <input type="number" name="passengers" min="1" step="1" required value="{{ form.passengers }}">
+      <span class="hint">Conducteur inclus</span>
+    </label>
+    <div class="form-actions full">
+      <button type="submit" class="btn primary">Enregistrer</button>
+      <a class="btn ghost" href="/vehicles/{{ vehicle.id }}">Annuler</a>
+    </div>
+  </form>
+  <p class="hint">Les coûts (carburant, entretien, CO₂…) seront recalculés à l’enregistrement.</p>
+</section>
+{% endblock %}

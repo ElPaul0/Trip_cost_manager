@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Supprimer trajet — {{ vehicle.name }}{% endblock %}
+{% block content %}
+<section class="section">
+  <p class="eyebrow"><a href="/vehicles/{{ vehicle.id }}">← {{ vehicle.name }}</a></p>
+  <h1>Êtes-vous sûr&nbsp;?</h1>
+  <p class="section-lead">
+    Supprimer le trajet <strong>{{ trip.name }}</strong>
+    ({{ trip.departure }} → {{ trip.arrival }},
+    {{ trip.trip_date.strftime("%d/%m/%Y") }},
+    {{ "%.1f"|format(trip.distance_km) }} km · {{ trip.total_cost|euro }})
+    pour {{ vehicle.name }} ?
+  </p>
+  <p class="alert">Cette action est irréversible.</p>
+  <div class="actions">
+    <form method="post" action="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/delete" class="inline-form">
+      <button type="submit" class="btn danger">Oui, supprimer</button>
+    </form>
+    <a class="btn ghost" href="/vehicles/{{ vehicle.id }}">Non, annuler</a>
+  </div>
+</section>
+{% endblock %}

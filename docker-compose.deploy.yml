@@ -3,8 +3,16 @@
 # 2. cp .env.example .env  puis éditer POSTGRES_PASSWORD
 # 3. docker compose -f docker-compose.deploy.yml up -d
 #
-# Image : ghcr.io/elpaul0/trip_cost_manager:latest
-# (publiée automatiquement à chaque push sur main)
+# Images disponibles (GHCR, publiées par GitHub Actions) :
+#   ghcr.io/elpaul0/trip_cost_manager:latest   — dernière version main
+#   ghcr.io/elpaul0/trip_cost_manager:1.0      — version figée (rollback)
+#   ghcr.io/elpaul0/trip_cost_manager:1.1      — etc.
+#
+# Pinnez APP_IMAGE dans .env pour choisir la version (ex. :1.0).
+#
+# DONNÉES : le volume postgres_data conserve la base entre mises à jour.
+#   docker compose pull && docker compose up -d   → met à jour l'app, garde les données
+#   docker compose down -v                        → SUPPRIME la base (à éviter)
 
 services:
   db:

@@ -586,6 +586,29 @@ th {
   margin-top: 0.15rem;
 }
 
+.table-actions {
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+.table-actions a {
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 0.65rem;
+}
+
+.table-actions a:first-child {
+  margin-left: 0;
+}
+
+.table-actions a:hover {
+  text-decoration: underline;
+}
+
+.table-actions .danger-link {
+  color: var(--accent-deep);
+}
+
 .site-footer {
   max-width: 960px;
   margin: 0 auto;
