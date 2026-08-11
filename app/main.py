@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 # Charge .env avant les modules qui lisent os.getenv (HERE, DATABASE_URL)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,10 +14,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session, joinedload
 
+from app import here_maps
 from app.comments import trip_comment
 from app.database import Base, engine, get_db
 from app.fuels import FUEL_TYPES, consumption_unit_label, get_fuel_profile
-from app import here_maps
+from app.maintenance_import import TEMPLATE_CSV, parse_maintenance_csv
 from app.models import MaintenanceOp, Trip, User, Vehicle
 from app.schemas import TripCosts, calculate_trip_costs
 
@@ -1152,8 +1153,33 @@ def delete_trip(
     return RedirectResponse(url=f"/vehicles/{vehicle.id}", status_code=303)
 
 
+def _maintenance_page_context(
+    vehicle: Vehicle,
+    operations: list[MaintenanceOp],
+    *,
+    form: dict | None = None,
+    error: str | None = None,
+    import_message: str | None = None,
+    import_errors: list[str] | None = None,
+) -> dict:
+    return {
+        "vehicle": vehicle,
+        "operations": operations,
+        "stats": maintenance_stats(operations),
+        "form": form or default_maintenance_form(),
+        "error": error,
+        "import_message": import_message,
+        "import_errors": import_errors or [],
+    }
+
+
 @app.get("/vehicles/{vehicle_id}/maintenance")
-def maintenance_page(vehicle_id: int, request: Request, db: Session = Depends(get_db)):
+def maintenance_page(
+    vehicle_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    imported: int | None = None,
+):
     user = require_user_or_redirect(request, db)
     if isinstance(user, RedirectResponse):
         return user
@@ -1162,17 +1188,150 @@ def maintenance_page(vehicle_id: int, request: Request, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
 
     operations = list_maintenance_ops(db, vehicle_id)
+    import_message = None
+    if imported is not None and imported > 0:
+        import_message = f"{imported} opération(s) importée(s) avec succès."
     return render(
         request,
         "maintenance.html",
         db,
-        {
-            "vehicle": vehicle,
-            "operations": operations,
-            "stats": maintenance_stats(operations),
-            "form": default_maintenance_form(),
-            "error": None,
+        _maintenance_page_context(
+            vehicle,
+            operations,
+            import_message=import_message,
+        ),
+    )
+
+
+@app.get("/vehicles/{vehicle_id}/maintenance/import/template")
+def download_maintenance_import_template(
+    vehicle_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Véhicule introuvable")
+    return Response(
+        content=TEMPLATE_CSV,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="maintenance_import_template.csv"'
         },
+    )
+
+
+@app.post("/vehicles/{vehicle_id}/maintenance/import")
+async def import_maintenance_ops(
+    vehicle_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    vehicle = get_owned_vehicle(db, user, vehicle_id)
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Véhicule introuvable")
+
+    filename = (file.filename or "").lower()
+    if filename and not filename.endswith(".csv"):
+        operations = list_maintenance_ops(db, vehicle_id)
+        return render(
+            request,
+            "maintenance.html",
+            db,
+            _maintenance_page_context(
+                vehicle,
+                operations,
+                import_errors=["Format non supporté : utilisez un fichier .csv"],
+            ),
+            status_code=400,
+        )
+
+    content = await file.read()
+    if not content.strip():
+        operations = list_maintenance_ops(db, vehicle_id)
+        return render(
+            request,
+            "maintenance.html",
+            db,
+            _maintenance_page_context(
+                vehicle,
+                operations,
+                import_errors=["Le fichier est vide."],
+            ),
+            status_code=400,
+        )
+
+    try:
+        result = parse_maintenance_csv(content)
+    except ValueError as exc:
+        operations = list_maintenance_ops(db, vehicle_id)
+        return render(
+            request,
+            "maintenance.html",
+            db,
+            _maintenance_page_context(
+                vehicle,
+                operations,
+                import_errors=[str(exc)],
+            ),
+            status_code=400,
+        )
+
+    if not result.created and result.errors:
+        operations = list_maintenance_ops(db, vehicle_id)
+        return render(
+            request,
+            "maintenance.html",
+            db,
+            _maintenance_page_context(
+                vehicle,
+                operations,
+                import_errors=result.errors,
+            ),
+            status_code=400,
+        )
+
+    for row in result.created:
+        db.add(
+            MaintenanceOp(
+                vehicle_id=vehicle.id,
+                name=row.name,
+                operation_date=row.operation_date,
+                mileage_km=row.mileage_km,
+                price=row.price,
+                parts_url=row.parts_url,
+                comments=row.comments,
+            )
+        )
+    db.commit()
+
+    if result.errors:
+        operations = list_maintenance_ops(db, vehicle_id)
+        return render(
+            request,
+            "maintenance.html",
+            db,
+            _maintenance_page_context(
+                vehicle,
+                operations,
+                import_message=(
+                    f"{len(result.created)} opération(s) importée(s), "
+                    f"{len(result.errors)} ligne(s) ignorée(s)."
+                ),
+                import_errors=result.errors,
+            ),
+        )
+
+    return RedirectResponse(
+        url=f"/vehicles/{vehicle.id}/maintenance?imported={len(result.created)}",
+        status_code=303,
     )
 
 
@@ -1216,13 +1375,12 @@ def create_maintenance_op(
             request,
             "maintenance.html",
             db,
-            {
-                "vehicle": vehicle,
-                "operations": operations,
-                "stats": maintenance_stats(operations),
-                "form": form,
-                "error": error,
-            },
+            _maintenance_page_context(
+                vehicle,
+                operations,
+                form=form,
+                error=error,
+            ),
             status_code=400,
         )
 

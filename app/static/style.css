@@ -638,6 +638,23 @@ td:has(.table-actions) {
   margin: 1rem 0 0;
 }
 
+.alert.success {
+  border-left-color: #3d6e58;
+}
+
+.error-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+code {
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
 .empty {
   color: var(--ink-soft);
   margin: 1rem 0 0;

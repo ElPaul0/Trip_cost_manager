@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Trip Cost Manager">
+  <!-- Remplace ce fichier (app/static/favicon.svg) pour changer la favicon facilement. -->
+  <rect width="64" height="64" rx="14" fill="#1c2a24"/>
+  <path d="M12 38c6-14 14-20 20-20s14 6 20 20" fill="none" stroke="#e08a4f" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="22" cy="42" r="5" fill="#e7efe9"/>
+  <circle cx="42" cy="42" r="5" fill="#e7efe9"/>
+  <path d="M18 28h28l-3 10H21l-3-10z" fill="#3d5248"/>
+</svg>
