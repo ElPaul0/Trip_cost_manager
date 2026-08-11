@@ -21,7 +21,7 @@
     </div>
   </dl>
 
-  <div class="actions">
+  <div class="actions vehicle-header-actions">
     <a class="btn primary" href="/trips/new?vehicle_id={{ vehicle.id }}">Nouveau trajet</a>
     <a class="btn ghost" href="/vehicles/{{ vehicle.id }}/maintenance">Carnet d’entretien</a>
     <a class="btn ghost" href="/vehicles/{{ vehicle.id }}/edit">Modifier</a>
@@ -70,26 +70,27 @@
           <th>CO₂</th>
           <th>Total</th>
           <th>/ pers.</th>
-          <th></th>
+          <th class="col-actions">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for trip in trips %}
         <tr>
           <td>{{ trip.trip_date.strftime("%d/%m/%Y") }}</td>
-          <td>
+          <td class="trip-cell">
             <strong>{{ trip.name }}</strong>
             <div class="table-sub">{{ trip.departure }} → {{ trip.arrival }}</div>
-          </td>
-          <td>{{ "%.1f"|format(trip.distance_km) }} km</td>
+          </td>          <td>{{ "%.1f"|format(trip.distance_km) }} km</td>
           <td>{{ trip.fuel_cost|euro }}</td>
           <td>{{ trip.tolls|euro }}</td>
           <td>{{ trip.co2_kg|kg }}</td>
           <td>{{ trip.total_cost|euro }}</td>
           <td>{{ trip.cost_per_person|euro }}</td>
-          <td class="table-actions">
-            <a href="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/edit">Modifier</a>
-            <a href="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/delete" class="danger-link">Supprimer</a>
+          <td>
+            <div class="table-actions">
+              <a href="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/edit">Modifier</a>
+              <a href="/vehicles/{{ vehicle.id }}/trips/{{ trip.id }}/delete" class="danger-link">Supprimer</a>
+            </div>
           </td>
         </tr>
         {% endfor %}

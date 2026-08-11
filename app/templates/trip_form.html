@@ -10,7 +10,14 @@
   {% endif %}
 
   {% if vehicles %}
-  <form method="post" action="/trips/new" class="form-grid" id="trip-form">
+  {% if here_enabled %}
+  <div class="mode-toggle" role="group" aria-label="Mode de saisie">
+    <button type="button" class="mode-btn is-active" data-mode="manual" id="mode-manual">Manuel</button>
+    <button type="button" class="mode-btn" data-mode="gps" id="mode-gps">GPS (HERE)</button>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/trips/new" class="form-grid" id="trip-form" data-here-enabled="{{ 'true' if here_enabled else 'false' }}">
     <label>
       Nom du trajet
       <input type="text" name="name" required value="{{ form.name }}" placeholder="Ex. Retour vacances">
@@ -19,14 +26,48 @@
       Date
       <input type="date" name="trip_date" required value="{{ form.trip_date }}">
     </label>
-    <label>
-      Départ
-      <input type="text" name="departure" required value="{{ form.departure }}" placeholder="Ex. Rennes">
-    </label>
-    <label>
-      Arrivée
-      <input type="text" name="arrival" required value="{{ form.arrival }}" placeholder="Ex. Lyon">
-    </label>
+
+    <div class="place-field" data-place="departure">
+      <label>
+        Départ
+        <input
+          type="text"
+          name="departure"
+          id="departure-input"
+          required
+          autocomplete="off"
+          value="{{ form.departure }}"
+          placeholder="Ex. Rennes"
+        >
+      </label>
+      <ul class="suggest-list" id="departure-suggest" hidden></ul>
+      <input type="hidden" id="departure-lat" value="">
+      <input type="hidden" id="departure-lng" value="">
+    </div>
+
+    <div class="place-field" data-place="arrival">
+      <label>
+        Arrivée
+        <input
+          type="text"
+          name="arrival"
+          id="arrival-input"
+          required
+          autocomplete="off"
+          value="{{ form.arrival }}"
+          placeholder="Ex. Lyon"
+        >
+      </label>
+      <ul class="suggest-list" id="arrival-suggest" hidden></ul>
+      <input type="hidden" id="arrival-lat" value="">
+      <input type="hidden" id="arrival-lng" value="">
+    </div>
+
+    <div class="gps-panel full" id="gps-panel" hidden>
+      <button type="button" class="btn ghost" id="route-btn">Calculer l’itinéraire (distance + péages)</button>
+      <p class="hint" id="route-status">Choisissez un départ et une arrivée dans les suggestions, puis calculez l’itinéraire.</p>
+    </div>
+
     <label class="full">
       Véhicule
       <select name="vehicle_id" id="vehicle-select" required>
@@ -47,8 +88,8 @@
     </label>
     <label>
       Distance (km)
-      <input type="number" name="distance_km" step="0.1" min="0.1" required value="{{ form.distance_km }}">
-      <span class="hint">Saisie manuelle pour l’instant — auto plus tard via Maps</span>
+      <input type="number" name="distance_km" id="distance-input" step="0.1" min="0.1" required value="{{ form.distance_km }}">
+      <span class="hint" id="distance-hint">Saisie manuelle, ou via GPS (HERE)</span>
     </label>
     <label>
       <span id="price-label">{{ selected_profile.price_label }}</span>
@@ -56,7 +97,8 @@
     </label>
     <label>
       Péages (€)
-      <input type="number" name="tolls" step="0.01" min="0" value="{{ form.tolls }}">
+      <input type="number" name="tolls" id="tolls-input" step="0.01" min="0" value="{{ form.tolls }}">
+      <span class="hint" id="tolls-hint">Modifiable même après calcul GPS</span>
     </label>
     <label>
       Nombre de personnes
@@ -64,7 +106,7 @@
       <span class="hint">Conducteur inclus</span>
     </label>
     <div class="form-actions full">
-      <button type="submit" name="action" value="calculate" class="btn primary">Calculer</button>
+      <button type="submit" name="action" value="calculate" class="btn primary">Calculer le coût</button>
       {% if costs %}
       <button type="submit" name="action" value="archive" class="btn ghost">Archiver le trajet</button>
       {% endif %}
@@ -155,6 +197,161 @@
       form.addEventListener("change", clearPreview);
     }
     {% endif %}
+
+    const formEl = document.getElementById("trip-form");
+    if (!formEl || formEl.dataset.hereEnabled !== "true") return;
+
+    const modeManual = document.getElementById("mode-manual");
+    const modeGps = document.getElementById("mode-gps");
+    const gpsPanel = document.getElementById("gps-panel");
+    const routeBtn = document.getElementById("route-btn");
+    const routeStatus = document.getElementById("route-status");
+    const distanceInput = document.getElementById("distance-input");
+    const tollsInput = document.getElementById("tolls-input");
+    const distanceHint = document.getElementById("distance-hint");
+    let mode = "manual";
+
+    const fields = {
+      departure: {
+        input: document.getElementById("departure-input"),
+        list: document.getElementById("departure-suggest"),
+        lat: document.getElementById("departure-lat"),
+        lng: document.getElementById("departure-lng"),
+        timer: null,
+      },
+      arrival: {
+        input: document.getElementById("arrival-input"),
+        list: document.getElementById("arrival-suggest"),
+        lat: document.getElementById("arrival-lat"),
+        lng: document.getElementById("arrival-lng"),
+        timer: null,
+      },
+    };
+
+    const setMode = (next) => {
+      mode = next;
+      modeManual.classList.toggle("is-active", mode === "manual");
+      modeGps.classList.toggle("is-active", mode === "gps");
+      gpsPanel.hidden = mode !== "gps";
+      distanceHint.textContent =
+        mode === "gps"
+          ? "Prérempli via HERE — toujours modifiable"
+          : "Saisie manuelle, ou via GPS (HERE)";
+    };
+
+    modeManual.addEventListener("click", () => setMode("manual"));
+    modeGps.addEventListener("click", () => setMode("gps"));
+
+    const hideList = (field) => {
+      field.list.hidden = true;
+      field.list.innerHTML = "";
+    };
+
+    const clearCoords = (field) => {
+      field.lat.value = "";
+      field.lng.value = "";
+    };
+
+    const selectSuggestion = (field, item) => {
+      field.input.value = item.label;
+      field.lat.value = String(item.lat);
+      field.lng.value = String(item.lng);
+      hideList(field);
+      routeStatus.textContent = "Lieu sélectionné. Calculez l’itinéraire quand départ et arrivée sont prêts.";
+    };
+
+    const fetchSuggestions = async (field) => {
+      const q = field.input.value.trim();
+      if (mode !== "gps" || q.length < 2) {
+        hideList(field);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/here/suggest?q=${encodeURIComponent(q)}&limit=6`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Erreur suggestions");
+        const items = data.items || [];
+        if (!items.length) {
+          hideList(field);
+          return;
+        }
+        field.list.innerHTML = "";
+        items.forEach((item) => {
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = item.label;
+          btn.addEventListener("click", () => selectSuggestion(field, item));
+          li.appendChild(btn);
+          field.list.appendChild(li);
+        });
+        field.list.hidden = false;
+      } catch (err) {
+        hideList(field);
+        routeStatus.textContent = err.message || "Suggestions indisponibles.";
+      }
+    };
+
+    Object.values(fields).forEach((field) => {
+      field.input.addEventListener("input", () => {
+        clearCoords(field);
+        if (mode !== "gps") return;
+        clearTimeout(field.timer);
+        field.timer = setTimeout(() => fetchSuggestions(field), 280);
+      });
+      field.input.addEventListener("blur", () => {
+        setTimeout(() => hideList(field), 180);
+      });
+      field.input.addEventListener("focus", () => {
+        if (mode === "gps" && field.input.value.trim().length >= 2) {
+          fetchSuggestions(field);
+        }
+      });
+    });
+
+    const formatDuration = (seconds) => {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.round((seconds % 3600) / 60);
+      if (h <= 0) return `${m} min`;
+      return `${h} h ${String(m).padStart(2, "0")} min`;
+    };
+
+    routeBtn.addEventListener("click", async () => {
+      const originLat = fields.departure.lat.value;
+      const originLng = fields.departure.lng.value;
+      const destLat = fields.arrival.lat.value;
+      const destLng = fields.arrival.lng.value;
+      if (!originLat || !originLng || !destLat || !destLng) {
+        routeStatus.textContent =
+          "Sélectionnez départ et arrivée dans la liste de suggestions (pas seulement du texte libre).";
+        return;
+      }
+      routeBtn.disabled = true;
+      routeStatus.textContent = "Calcul de l’itinéraire…";
+      try {
+        const res = await fetch("/api/here/route", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            origin_lat: Number(originLat),
+            origin_lng: Number(originLng),
+            destination_lat: Number(destLat),
+            destination_lng: Number(destLng),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Erreur itinéraire");
+        distanceInput.value = data.distance_km;
+        tollsInput.value = data.tolls_eur;
+        routeStatus.textContent = `Itinéraire OK — ${data.distance_km} km · péages ${Number(data.tolls_eur).toFixed(2)} € · ${formatDuration(data.duration_seconds)}. Vous pouvez encore ajuster avant de calculer le coût.`;
+      } catch (err) {
+        routeStatus.textContent = err.message || "Échec du calcul d’itinéraire.";
+      } finally {
+        routeBtn.disabled = false;
+      }
+    });
+
+    setMode("manual");
   })();
 </script>
 {% endblock %}

@@ -36,6 +36,8 @@ services:
       - "${APP_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-tripuser}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-trip_cost_manager}
+      HERE_API_KEY: ${HERE_API_KEY:-}
+      HERE_ENABLED: ${HERE_ENABLED:-true}
     depends_on:
       db:
         condition: service_healthy

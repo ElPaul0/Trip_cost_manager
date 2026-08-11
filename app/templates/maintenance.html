@@ -98,9 +98,11 @@
             —
             {% endif %}
           </td>
-          <td class="table-actions">
-            <a href="/vehicles/{{ vehicle.id }}/maintenance/{{ op.id }}/edit">Modifier</a>
-            <a href="/vehicles/{{ vehicle.id }}/maintenance/{{ op.id }}/delete">Supprimer</a>
+          <td>
+            <div class="table-actions">
+              <a href="/vehicles/{{ vehicle.id }}/maintenance/{{ op.id }}/edit">Modifier</a>
+              <a href="/vehicles/{{ vehicle.id }}/maintenance/{{ op.id }}/delete" class="danger-link">Supprimer</a>
+            </div>
           </td>
         </tr>
         {% endfor %}

@@ -1,16 +1,23 @@
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Charge .env avant les modules qui lisent os.getenv (HERE, DATABASE_URL)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.comments import trip_comment
 from app.database import Base, engine, get_db
 from app.fuels import FUEL_TYPES, consumption_unit_label, get_fuel_profile
+from app import here_maps
 from app.models import MaintenanceOp, Trip, User, Vehicle
 from app.schemas import TripCosts, calculate_trip_costs
 
@@ -431,9 +438,57 @@ def render_trip_form(
             "form": form,
             "costs": costs,
             "comment": comment,
+            "here_enabled": here_maps.is_enabled(),
         },
         status_code=status_code,
     )
+
+
+class HereRouteRequest(BaseModel):
+    origin_lat: float = Field(..., ge=-90, le=90)
+    origin_lng: float = Field(..., ge=-180, le=180)
+    destination_lat: float = Field(..., ge=-90, le=90)
+    destination_lng: float = Field(..., ge=-180, le=180)
+
+
+@app.get("/api/here/status")
+def here_status():
+    return {"enabled": here_maps.is_enabled()}
+
+
+@app.get("/api/here/suggest")
+def here_suggest(q: str = "", limit: int = 6):
+    if not here_maps.is_enabled():
+        raise HTTPException(status_code=503, detail="HERE non configuré.")
+    try:
+        suggestions = here_maps.suggest_places(q, limit=limit)
+    except here_maps.HereMapsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "items": [
+            {"label": s.label, "lat": s.lat, "lng": s.lng} for s in suggestions
+        ]
+    }
+
+
+@app.post("/api/here/route")
+def here_route(payload: HereRouteRequest):
+    if not here_maps.is_enabled():
+        raise HTTPException(status_code=503, detail="HERE non configuré.")
+    try:
+        estimate = here_maps.calculate_route(
+            origin_lat=payload.origin_lat,
+            origin_lng=payload.origin_lng,
+            destination_lat=payload.destination_lat,
+            destination_lng=payload.destination_lng,
+        )
+    except here_maps.HereMapsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "distance_km": estimate.distance_km,
+        "tolls_eur": estimate.tolls_eur,
+        "duration_seconds": estimate.duration_seconds,
+    }
 
 
 @app.get("/")

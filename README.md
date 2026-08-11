@@ -129,6 +129,22 @@ Après le premier run Actions, si le pull échoue avec `unauthorized` / `denied`
 
 (ou reste privé et fais `docker login ghcr.io` sur le serveur)
 
+## Mode GPS (HERE)
+
+Sur la page **Nouveau trajet**, un toggle **Manuel / GPS (HERE)** apparaît si une clé API est configurée.
+
+1. Créez une clé sur [platform.here.com](https://platform.here.com) (services **Routing** + **Geocoding & Search**)
+2. Ajoutez dans `.env` :
+
+```env
+HERE_API_KEY=votre_cle
+HERE_ENABLED=true
+```
+
+En mode GPS : suggestions de lieux → **Calculer l’itinéraire** préremplit distance et péages (toujours modifiables).
+
+Sans clé, l’app reste en mode manuel uniquement.
+
 ## Structure
 
 ```
