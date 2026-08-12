@@ -46,6 +46,10 @@
       <input type="number" name="passengers" min="1" step="1" required value="{{ form.passengers }}">
       <span class="hint">Conducteur inclus</span>
     </label>
+    <label class="roundtrip-toggle full">
+      <input type="checkbox" name="is_round_trip" value="1" {% if form.is_round_trip %}checked{% endif %}>
+      <span>Aller-retour (AR)</span>
+    </label>
     <div class="form-actions full">
       <button type="submit" class="btn primary">Enregistrer</button>
       <a class="btn ghost" href="/vehicles/{{ vehicle.id }}">Annuler</a>

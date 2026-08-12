@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -90,6 +90,7 @@ class Trip(Base):
     cost_per_person: Mapped[float] = mapped_column(Float, nullable=False)
     energy_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     co2_kg: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    is_round_trip: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     vehicle: Mapped["Vehicle"] = relationship("Vehicle", back_populates="trips")

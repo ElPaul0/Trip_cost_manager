@@ -73,7 +73,7 @@
         <tr>
           <td>{{ trip.trip_date.strftime("%d/%m/%Y") }}</td>
           <td>
-            <strong>{{ trip.name }}</strong>
+            <strong>{{ trip.name }}{% if trip.is_round_trip %} <span class="ar-badge">(AR)</span>{% endif %}</strong>
             <div class="table-sub">{{ trip.departure|short_place }} → {{ trip.arrival|short_place }}</div>
           </td>
           <td><a href="/vehicles/{{ trip.vehicle_id }}">{{ trip.vehicle.name }}</a></td>

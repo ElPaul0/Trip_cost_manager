@@ -80,6 +80,10 @@ def ensure_schema() -> None:
                 alterations.append("ALTER TABLE trips ADD COLUMN energy_used FLOAT DEFAULT 0")
             if "co2_kg" not in trip_columns:
                 alterations.append("ALTER TABLE trips ADD COLUMN co2_kg FLOAT DEFAULT 0")
+            if "is_round_trip" not in trip_columns:
+                alterations.append(
+                    "ALTER TABLE trips ADD COLUMN is_round_trip BOOLEAN DEFAULT FALSE"
+                )
             for statement in alterations:
                 conn.execute(text(statement))
             if "trip_date" not in trip_columns:
@@ -244,6 +248,7 @@ def apply_trip_form_to_model(
     tolls: float,
     passengers: int,
     vehicle: Vehicle,
+    is_round_trip: bool = False,
 ) -> TripCosts:
     costs = calculate_trip_costs(
         distance_km=distance_km,
@@ -263,6 +268,7 @@ def apply_trip_form_to_model(
     trip.fuel_price_per_liter = fuel_price_per_liter
     trip.tolls = tolls
     trip.passengers = passengers
+    trip.is_round_trip = is_round_trip
     trip.fuel_cost = costs.fuel_cost
     trip.maintenance_cost = costs.maintenance_cost
     trip.amortization_cost = costs.amortization_cost
@@ -381,6 +387,7 @@ def default_form(vehicle_id: int | None = None) -> dict:
         "fuel_price_per_liter": "",
         "tolls": "0",
         "passengers": "1",
+        "is_round_trip": False,
     }
 
 
@@ -886,12 +893,14 @@ def submit_trip(
     fuel_price_per_liter: float = Form(...),
     tolls: float = Form(0.0),
     passengers: int = Form(1),
+    is_round_trip: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     user = require_user_or_redirect(request, db)
     if isinstance(user, RedirectResponse):
         return user
 
+    round_trip = is_round_trip in {"1", "on", "true", "True"}
     form = {
         "name": name,
         "departure": departure,
@@ -902,6 +911,7 @@ def submit_trip(
         "fuel_price_per_liter": fuel_price_per_liter,
         "tolls": tolls,
         "passengers": passengers,
+        "is_round_trip": round_trip,
     }
 
     if action not in {"calculate", "archive"}:
@@ -1008,6 +1018,7 @@ def submit_trip(
         cost_per_person=costs.cost_per_person,
         energy_used=costs.energy_used,
         co2_kg=costs.co2_kg,
+        is_round_trip=round_trip,
     )
     db.add(trip)
     db.commit()
@@ -1046,6 +1057,7 @@ def edit_trip_page(
                 "fuel_price_per_liter": trip.fuel_price_per_liter,
                 "tolls": trip.tolls,
                 "passengers": trip.passengers,
+                "is_round_trip": bool(trip.is_round_trip),
             },
             "error": None,
         },
@@ -1065,6 +1077,7 @@ def update_trip(
     fuel_price_per_liter: float = Form(...),
     tolls: float = Form(0.0),
     passengers: int = Form(1),
+    is_round_trip: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     user = require_user_or_redirect(request, db)
@@ -1076,6 +1089,7 @@ def update_trip(
     vehicle, trip = owned
     profile = get_fuel_profile(vehicle.fuel_type)
 
+    round_trip = is_round_trip in {"1", "on", "true", "True"}
     form = {
         "name": name,
         "departure": departure,
@@ -1085,6 +1099,7 @@ def update_trip(
         "fuel_price_per_liter": fuel_price_per_liter,
         "tolls": tolls,
         "passengers": passengers,
+        "is_round_trip": round_trip,
     }
     error, parsed_date = validate_trip_form(
         name=name,
@@ -1123,6 +1138,7 @@ def update_trip(
             tolls=tolls,
             passengers=passengers,
             vehicle=vehicle,
+            is_round_trip=round_trip,
         )
     except ValueError as exc:
         return render(

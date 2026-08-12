@@ -65,12 +65,13 @@
 
     <div class="gps-panel full" id="gps-panel" hidden>
       <button type="button" class="btn ghost" id="route-btn">Calculer l’itinéraire (distance + péages)</button>
-      <label class="roundtrip-toggle">
-        <input type="checkbox" id="roundtrip-check">
-        <span>Aller-retour (×2)</span>
-      </label>
       <p class="hint" id="route-status">Choisissez un départ et une arrivée dans les suggestions, puis calculez l’itinéraire.</p>
     </div>
+
+    <label class="roundtrip-toggle full">
+      <input type="checkbox" name="is_round_trip" id="roundtrip-check" value="1" {% if form.is_round_trip %}checked{% endif %}>
+      <span>Aller-retour (AR) — double distance/péages en mode GPS</span>
+    </label>
 
     <label class="full">
       Véhicule
@@ -122,6 +123,7 @@
     <h2>Résultat du calcul</h2>
     <p class="section-lead">
       {{ form.name }} · {{ form.departure }} → {{ form.arrival }}
+      {% if form.is_round_trip %} (AR){% endif %}
       {% if form.trip_date %} · {{ form.trip_date }}{% endif %}
     </p>
     {% if comment %}

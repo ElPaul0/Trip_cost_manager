@@ -533,6 +533,18 @@ html[data-theme="dark"] .theme-toggle-icon {
   white-space: nowrap;
 }
 
+.roundtrip-toggle.full {
+  margin-top: 0.15rem;
+}
+
+.ar-badge {
+  font-family: var(--font-body);
+  font-size: 0.78em;
+  font-weight: 650;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
 .roundtrip-toggle input {
   width: 1.05rem;
   height: 1.05rem;
