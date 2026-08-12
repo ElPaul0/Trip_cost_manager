@@ -59,6 +59,10 @@
           {{ vehicle.model }} · {{ vehicle.fuel_type }} ·
           {{ vehicle.consumption_l_per_100km }} {{ consumption_unit_label(vehicle.fuel_type) }}
           · {{ get_fuel_profile(vehicle.fuel_type).co2_kg_per_unit }} kg CO₂/{{ get_fuel_profile(vehicle.fuel_type).unit }}
+          {% set km = last_mileages.get(vehicle.id) if last_mileages is defined else none %}
+          {% if km is not none %}
+          · {{ "%.0f"|format(km) }} km
+          {% endif %}
         </span>
       </a>
     </li>

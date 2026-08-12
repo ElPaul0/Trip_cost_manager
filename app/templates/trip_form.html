@@ -258,7 +258,7 @@
     };
 
     const selectSuggestion = (field, item) => {
-      field.input.value = item.label;
+      field.input.value = item.short_label || item.label;
       field.lat.value = String(item.lat);
       field.lng.value = String(item.lng);
       hideList(field);

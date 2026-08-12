@@ -74,7 +74,7 @@
           <td>{{ trip.trip_date.strftime("%d/%m/%Y") }}</td>
           <td>
             <strong>{{ trip.name }}</strong>
-            <div class="table-sub">{{ trip.departure }} → {{ trip.arrival }}</div>
+            <div class="table-sub">{{ trip.departure|short_place }} → {{ trip.arrival|short_place }}</div>
           </td>
           <td><a href="/vehicles/{{ trip.vehicle_id }}">{{ trip.vehicle.name }}</a></td>
           <td>{{ "%.1f"|format(trip.distance_km) }} km</td>

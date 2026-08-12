@@ -6,7 +6,7 @@
   <h1>Êtes-vous sûr&nbsp;?</h1>
   <p class="section-lead">
     Supprimer le trajet <strong>{{ trip.name }}</strong>
-    ({{ trip.departure }} → {{ trip.arrival }},
+    ({{ trip.departure|short_place }} → {{ trip.arrival|short_place }},
     {{ trip.trip_date.strftime("%d/%m/%Y") }},
     {{ "%.1f"|format(trip.distance_km) }} km · {{ trip.total_cost|euro }})
     pour {{ vehicle.name }} ?

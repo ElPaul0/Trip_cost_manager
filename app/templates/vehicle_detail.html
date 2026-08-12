@@ -52,6 +52,16 @@
       <dt>Coût moyen / km</dt>
       <dd>{{ "%.3f"|format(stats.avg_cost_per_km) }} €</dd>
     </div>
+    <div>
+      <dt>Dernier kilométrage</dt>
+      <dd>
+        {% if stats.last_mileage is not none %}
+          {{ "%.0f"|format(stats.last_mileage) }} km
+        {% else %}
+          —
+        {% endif %}
+      </dd>
+    </div>
   </dl>
 </section>
 
@@ -79,7 +89,7 @@
           <td>{{ trip.trip_date.strftime("%d/%m/%Y") }}</td>
           <td class="trip-cell">
             <strong>{{ trip.name }}</strong>
-            <div class="table-sub">{{ trip.departure }} → {{ trip.arrival }}</div>
+            <div class="table-sub">{{ trip.departure|short_place }} → {{ trip.arrival|short_place }}</div>
           </td>          <td>{{ "%.1f"|format(trip.distance_km) }} km</td>
           <td>{{ trip.fuel_cost|euro }}</td>
           <td>{{ trip.tolls|euro }}</td>

@@ -107,6 +107,7 @@ def kg(value: float | None) -> str:
 
 templates.env.filters["euro"] = euro
 templates.env.filters["kg"] = kg
+templates.env.filters["short_place"] = here_maps.short_place
 templates.env.globals["consumption_unit_label"] = consumption_unit_label
 templates.env.globals["get_fuel_profile"] = get_fuel_profile
 
@@ -310,13 +311,27 @@ def list_maintenance_ops(db: Session, vehicle_id: int) -> list[MaintenanceOp]:
     )
 
 
+def latest_nonzero_mileage(operations: list[MaintenanceOp]) -> float | None:
+    """Dernier km connu : on ignore les 0 (souvent erreurs / immat)."""
+    for op in operations:
+        if op.mileage_km and op.mileage_km > 0:
+            return round(op.mileage_km, 1)
+    return None
+
+
+def vehicles_last_mileages(db: Session, vehicles: list[Vehicle]) -> dict[int, float | None]:
+    return {
+        vehicle.id: latest_nonzero_mileage(list_maintenance_ops(db, vehicle.id))
+        for vehicle in vehicles
+    }
+
+
 def maintenance_stats(operations: list[MaintenanceOp]) -> dict:
     total_spent = round(sum(op.price for op in operations), 2)
-    last_mileage = max((op.mileage_km for op in operations), default=None)
     return {
         "op_count": len(operations),
         "total_spent": total_spent,
-        "last_mileage": round(last_mileage, 1) if last_mileage is not None else None,
+        "last_mileage": latest_nonzero_mileage(operations),
     }
 
 
@@ -467,7 +482,13 @@ def here_suggest(q: str = "", limit: int = 6):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {
         "items": [
-            {"label": s.label, "lat": s.lat, "lng": s.lng} for s in suggestions
+            {
+                "label": s.label,
+                "short_label": s.short_label,
+                "lat": s.lat,
+                "lng": s.lng,
+            }
+            for s in suggestions
         ]
     }
 
@@ -646,7 +667,11 @@ def vehicles_page(request: Request, db: Session = Depends(get_db)):
         request,
         "vehicles.html",
         db,
-        fuel_page_context(vehicles=vehicles, error=None),
+        fuel_page_context(
+            vehicles=vehicles,
+            last_mileages=vehicles_last_mileages(db, vehicles),
+            error=None,
+        ),
     )
 
 
@@ -680,7 +705,11 @@ def create_vehicle(
             request,
             "vehicles.html",
             db,
-            fuel_page_context(vehicles=vehicles, error=error),
+            fuel_page_context(
+                vehicles=vehicles,
+                last_mileages=vehicles_last_mileages(db, vehicles),
+                error=error,
+            ),
             status_code=400,
         )
 
@@ -713,6 +742,8 @@ def vehicle_detail(vehicle_id: int, request: Request, db: Session = Depends(get_
         .order_by(Trip.trip_date.desc(), Trip.id.desc())
     ).all()
     stats = build_stats(list(trips))
+    maintenance_ops = list_maintenance_ops(db, vehicle_id)
+    stats["last_mileage"] = latest_nonzero_mileage(maintenance_ops)
     profile = get_fuel_profile(vehicle.fuel_type)
     return render(
         request,

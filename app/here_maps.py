@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +25,7 @@ class HereMapsError(Exception):
 @dataclass(frozen=True)
 class PlaceSuggestion:
     label: str
+    short_label: str
     lat: float
     lng: float
 
@@ -63,6 +65,51 @@ def _request_json(url: str, timeout: float = 12.0) -> dict | list:
         raise HereMapsError("Réponse HERE invalide.") from exc
 
 
+def short_place(value: str | None) -> str:
+    """Réduit un libellé HERE/adresse à un nom de ville lisible."""
+    if not value:
+        return ""
+    raw = str(value).strip()
+    if not raw:
+        return ""
+
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if not parts:
+        return raw
+
+    # "35000 Rennes" / "69002 Lyon"
+    for part in parts:
+        match = re.match(r"^\d{4,5}\s+(.+)$", part)
+        if match:
+            return match.group(1).strip()
+
+    first = parts[0]
+    # Adresse type "12 rue X, …, Ville, France" → privilégier la ville
+    if re.match(r"^\d", first) and len(parts) >= 2:
+        countries = {
+            "france",
+            "espagne",
+            "spain",
+            "belgique",
+            "belgium",
+            "suisse",
+            "switzerland",
+            "allemagne",
+            "germany",
+            "italie",
+            "italy",
+            "portugal",
+            "luxembourg",
+            "monaco",
+            "andorra",
+        }
+        if parts[-1].lower() in countries and len(parts) >= 2:
+            return parts[-2]
+        return parts[1] if len(parts) > 1 else first
+
+    return first
+
+
 def suggest_places(query: str, *, limit: int = 6) -> list[PlaceSuggestion]:
     api_key = get_api_key()
     if not api_key:
@@ -93,13 +140,17 @@ def suggest_places(query: str, *, limit: int = 6) -> list[PlaceSuggestion]:
         if lat is None or lng is None:
             continue
         address = item.get("address") or {}
-        label = (
-            address.get("label")
-            or item.get("title")
-            or f"{lat},{lng}"
-        )
+        title = str(item.get("title") or "").strip()
+        label = str(address.get("label") or title or f"{lat},{lng}").strip()
+        city = str(address.get("city") or "").strip()
+        short_label = city or short_place(label) or title or label
         suggestions.append(
-            PlaceSuggestion(label=str(label), lat=float(lat), lng=float(lng))
+            PlaceSuggestion(
+                label=label,
+                short_label=short_label,
+                lat=float(lat),
+                lng=float(lng),
+            )
         )
     return suggestions
 
