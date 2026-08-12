@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -40,6 +41,40 @@ class ParsedMaintenanceRow:
 class ImportResult:
     created: list[ParsedMaintenanceRow]
     errors: list[str]
+
+
+def _decode_content(content: bytes | str) -> str:
+    if isinstance(content, str):
+        return content
+    for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
+def _detect_delimiter(text: str) -> str:
+    """Choisit ; ou , selon le contenu réel (pas seulement l’en-tête)."""
+    sample_lines = [line for line in text.splitlines() if line.strip()][:30]
+    if not sample_lines:
+        return ","
+
+    # Prefer Sniffer on a multi-line sample when possible
+    sample = "\n".join(sample_lines[:12])
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=";,\t")
+        if dialect.delimiter in {";", ",", "\t"}:
+            return dialect.delimiter
+    except csv.Error:
+        pass
+
+    # Fallback: count separators on data rows (skip header if mixed)
+    semi = sum(line.count(";") for line in sample_lines)
+    comma = sum(line.count(",") for line in sample_lines)
+    if semi >= comma and semi > 0:
+        return ";"
+    return ","
 
 
 def _normalize_header(value: str) -> str:
@@ -86,21 +121,32 @@ def _map_headers(fieldnames: list[str] | None) -> dict[str, str]:
 
 def _parse_date(value: str) -> datetime:
     raw = value.strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y"):
         try:
             parsed = datetime.strptime(raw, fmt).date()
             return datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)
         except ValueError:
             continue
     raise ValueError(
-        f"Date invalide « {value} » (formats acceptés : AAAA-MM-JJ ou JJ/MM/AAAA)."
+        f"Date invalide « {value} » "
+        "(formats acceptés : AAAA-MM-JJ, JJ/MM/AAAA ou JJ/MM/AA)."
     )
 
 
-def _parse_float(value: str, field_label: str) -> float:
-    raw = value.strip().replace(" ", "").replace(",", ".")
+def _parse_float(value: str, field_label: str, *, default: float | None = None) -> float:
+    raw = value.strip().replace("\u00a0", "").replace(" ", "")
+    # 1 234,56 or 1234,56 or 1234.56 — strip currency symbols
+    raw = re.sub(r"[€$]", "", raw)
     if raw == "":
+        if default is not None:
+            return default
         raise ValueError(f"{field_label} manquant.")
+    # French decimal comma (keep thousand dots only if no comma)
+    if "," in raw and "." in raw:
+        # 1.234,56 → 1234.56
+        raw = raw.replace(".", "").replace(",", ".")
+    else:
+        raw = raw.replace(",", ".")
     try:
         number = float(raw)
     except ValueError as exc:
@@ -111,12 +157,9 @@ def _parse_float(value: str, field_label: str) -> float:
 
 
 def parse_maintenance_csv(content: bytes | str) -> ImportResult:
-    if isinstance(content, bytes):
-        text = content.decode("utf-8-sig")
-    else:
-        text = content
-
-    reader = csv.DictReader(io.StringIO(text))
+    text = _decode_content(content)
+    delimiter = _detect_delimiter(text)
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     mapping = _map_headers(reader.fieldnames)
 
     created: list[ParsedMaintenanceRow] = []
@@ -128,16 +171,31 @@ def parse_maintenance_csv(content: bytes | str) -> ImportResult:
 
         try:
             name = (row.get(mapping["name"]) or "").strip()
+            comments = ""
+            if "comments" in mapping:
+                comments = (row.get(mapping["comments"]) or "").strip()
+
+            # Lignes « référence » sans nom : utiliser le commentaire ou un libellé par défaut
             if not name:
-                raise ValueError("Le nom est obligatoire.")
+                name = comments.split(" - ")[0].strip() if comments else ""
+                if not name:
+                    name = "Sans nom"
 
             date_raw = (row.get(mapping["operation_date"]) or "").strip()
             if not date_raw:
                 date_raw = date.today().isoformat()
             operation_date = _parse_date(date_raw)
 
-            mileage_km = _parse_float(row.get(mapping["mileage_km"]) or "", "Kilométrage")
-            price = _parse_float(row.get(mapping["price"]) or "", "Prix")
+            mileage_km = _parse_float(
+                row.get(mapping["mileage_km"]) or "",
+                "Kilométrage",
+                default=0.0,
+            )
+            price = _parse_float(
+                row.get(mapping["price"]) or "",
+                "Prix",
+                default=0.0,
+            )
 
             parts_url = ""
             if "parts_url" in mapping:
@@ -145,11 +203,12 @@ def parse_maintenance_csv(content: bytes | str) -> ImportResult:
             if parts_url and not (
                 parts_url.startswith("http://") or parts_url.startswith("https://")
             ):
-                raise ValueError("Le lien pièce doit commencer par http:// ou https://.")
-
-            comments = ""
-            if "comments" in mapping:
-                comments = (row.get(mapping["comments"]) or "").strip()
+                # Si ce n'est pas une URL, basculer dans les commentaires plutôt que d'échouer
+                if comments:
+                    comments = f"{parts_url} — {comments}"
+                else:
+                    comments = parts_url
+                parts_url = ""
 
             created.append(
                 ParsedMaintenanceRow(
