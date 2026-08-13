@@ -8,6 +8,10 @@
     Vous êtes sur le point de supprimer l’utilisateur <strong>{{ target_user.name }}</strong>.
   </p>
 
+  {% if error %}
+  <p class="alert">{{ error }}</p>
+  {% endif %}
+
   <p class="alert">
     {% if vehicle_count == 0 %}
       Aucun véhicule n’est lié à cet utilisateur.
@@ -19,11 +23,27 @@
     Cette action est irréversible.
   </p>
 
-  <div class="actions">
-    <form method="post" action="/users/{{ target_user.id }}/delete" class="inline-form">
+  <form method="post" action="/users/{{ target_user.id }}/delete" class="form-grid">
+    {% if has_pin %}
+    <label>
+      Code PIN
+      <input
+        type="password"
+        name="current_pin"
+        inputmode="numeric"
+        pattern="\d{4}"
+        maxlength="4"
+        required
+        autocomplete="current-password"
+        placeholder="••••"
+      >
+      <span class="hint">Ce profil est protégé : saisissez le code à 4 chiffres pour confirmer.</span>
+    </label>
+    {% endif %}
+    <div class="form-actions full actions">
       <button type="submit" class="btn danger">Oui, supprimer définitivement</button>
-    </form>
-    <a class="btn ghost" href="/users">Non, annuler</a>
-  </div>
+      <a class="btn ghost" href="/users">Non, annuler</a>
+    </div>
+  </form>
 </section>
 {% endblock %}

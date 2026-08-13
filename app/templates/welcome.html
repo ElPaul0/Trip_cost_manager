@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Choisir un utilisateur — Trip Cost Manager{% endblock %}
+{% block content %}
+<section class="hero welcome-hero">
+  <p class="brand-mark">Trip Cost Manager</p>
+  <h1>Qui utilise l’app&nbsp;?</h1>
+  <p class="lead">
+    Choisissez un profil pour cet appareil. Chaque utilisateur a ses propres véhicules, trajets et entretiens.
+  </p>
+</section>
+
+{% if error %}
+<p class="alert">{{ error }}</p>
+{% endif %}
+
+{% if users %}
+<section class="section">
+  <h2>Choisir un profil</h2>
+  <form method="post" action="/welcome/select" class="welcome-select-form">
+    <ul class="welcome-user-list">
+      {% for user in users %}
+      <li>
+        <label class="welcome-user-card">
+          <input type="radio" name="user_id" value="{{ user.id }}" required {% if loop.first %}checked{% endif %}>
+          <span class="welcome-user-main">
+            <span class="vehicle-name">
+              {{ user.name }}
+              {% if user.pin_hash %}<span class="badge soft" title="Protégé par un code PIN">PIN</span>{% endif %}
+            </span>
+            {% if user.tagline %}
+            <span class="vehicle-meta">{{ user.tagline }}</span>
+            {% else %}
+            <span class="vehicle-meta">Sans légende</span>
+            {% endif %}
+          </span>
+        </label>
+      </li>
+      {% endfor %}
+    </ul>
+    <label class="remember-check">
+      <input type="checkbox" name="remember" value="on" checked>
+      Se souvenir de mon choix sur cet appareil / navigateur
+    </label>
+    <div class="form-actions">
+      <button type="submit" class="btn primary">Continuer</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+<section class="section">
+  <h2>{% if users %}Ou créer un nouvel utilisateur{% else %}Créer le premier utilisateur{% endif %}</h2>
+  <form method="post" action="/welcome/create" class="form-grid">
+    <label>
+      Nom
+      <input type="text" name="name" required maxlength="120" placeholder="Ex. Alice" autocomplete="username">
+    </label>
+    <label class="full">
+      Légende
+      <input type="text" name="tagline" maxlength="240" placeholder="Ex. Trajets maison ↔ boulot">
+      <span class="hint">Petite phrase affichée sous le nom.</span>
+    </label>
+    <label>
+      Code PIN (optionnel)
+      <input
+        type="password"
+        name="pin"
+        inputmode="numeric"
+        pattern="\d{4}"
+        maxlength="4"
+        autocomplete="new-password"
+        placeholder="4 chiffres"
+      >
+      <span class="hint">Laissez vide pour ne pas protéger ce profil. Demandé pour modifier ou supprimer.</span>
+    </label>
+    <label class="full remember-check">
+      <input type="checkbox" name="remember" value="on" checked>
+      Se souvenir de mon choix sur cet appareil / navigateur
+    </label>
+    <div class="form-actions full">
+      <button type="submit" class="btn primary">Créer et continuer</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

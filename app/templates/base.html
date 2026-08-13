@@ -22,7 +22,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Outfit:wght@360;500;650&display=swap" rel="stylesheet">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true"></div>
@@ -47,7 +47,7 @@
         {% if active_user.tagline %}
         <span class="user-chip-tagline">{{ active_user.tagline }}</span>
         {% endif %}
-        <a href="/users" class="user-chip-link">Changer</a>
+        <a href="/welcome?change=1" class="user-chip-link">Changer</a>
       </div>
       {% endif %}
     </div>

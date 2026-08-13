@@ -20,6 +20,7 @@ from app.database import Base, engine, get_db
 from app.fuels import FUEL_TYPES, consumption_unit_label, get_fuel_profile
 from app.maintenance_import import TEMPLATE_CSV, parse_maintenance_csv
 from app.models import MaintenanceOp, Trip, User, Vehicle
+from app.pin import hash_pin, user_has_pin, validate_pin_format, verify_pin
 from app.schemas import TripCosts, calculate_trip_costs
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,6 +37,13 @@ def ensure_schema() -> None:
     table_names = set(inspector.get_table_names())
 
     with engine.begin() as conn:
+        if "users" in table_names:
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            if "pin_hash" not in user_columns:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN pin_hash VARCHAR(120) DEFAULT ''")
+                )
+
         if "vehicles" in table_names:
             vehicle_columns = {column["name"] for column in inspector.get_columns("vehicles")}
             if "user_id" not in vehicle_columns:
@@ -136,25 +144,29 @@ def list_users(db: Session) -> list[User]:
 
 
 def get_active_user(request: Request, db: Session) -> User | None:
-    users = list_users(db)
-    if not users:
-        return None
     cookie = request.cookies.get(ACTIVE_USER_COOKIE)
     if cookie and cookie.isdigit():
         user = db.get(User, int(cookie))
         if user:
             return user
-    return users[0]
+    return None
 
 
-def set_active_user_cookie(response: Response, user_id: int) -> None:
-    response.set_cookie(
-        key=ACTIVE_USER_COOKIE,
-        value=str(user_id),
-        max_age=60 * 60 * 24 * 365,
-        httponly=False,
-        samesite="lax",
-    )
+def set_active_user_cookie(
+    response: Response,
+    user_id: int,
+    *,
+    remember: bool = True,
+) -> None:
+    kwargs = {
+        "key": ACTIVE_USER_COOKIE,
+        "value": str(user_id),
+        "httponly": False,
+        "samesite": "lax",
+    }
+    if remember:
+        kwargs["max_age"] = 60 * 60 * 24 * 365
+    response.set_cookie(**kwargs)
 
 
 def user_context(request: Request, db: Session, **extra):
@@ -183,18 +195,27 @@ def render(
     )
 
 
-def redirect_with_user(url: str, user_id: int | None = None) -> RedirectResponse:
+def redirect_with_user(
+    url: str,
+    user_id: int | None = None,
+    *,
+    remember: bool = True,
+) -> RedirectResponse:
     response = RedirectResponse(url=url, status_code=303)
     if user_id is not None:
-        set_active_user_cookie(response, user_id)
+        set_active_user_cookie(response, user_id, remember=remember)
     return response
 
 
 def require_user_or_redirect(request: Request, db: Session) -> User | RedirectResponse:
     user = get_active_user(request, db)
     if user is None:
-        return RedirectResponse(url="/users", status_code=303)
+        return RedirectResponse(url="/welcome", status_code=303)
     return user
+
+
+def form_remember(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "on", "yes"}
 
 
 def user_vehicles(db: Session, user: User) -> list[Vehicle]:
@@ -564,9 +585,75 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@app.get("/welcome")
+def welcome_page(request: Request, db: Session = Depends(get_db)):
+    active = get_active_user(request, db)
+    if active is not None and request.query_params.get("change") != "1":
+        return RedirectResponse(url="/", status_code=303)
+    return render(
+        request,
+        "welcome.html",
+        db,
+        {"error": None, "force_choose": request.query_params.get("change") == "1"},
+    )
+
+
+@app.post("/welcome/select")
+def welcome_select_user(
+    user_id: int = Form(...),
+    remember: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    return redirect_with_user("/", user.id, remember=form_remember(remember))
+
+
+@app.post("/welcome/create")
+def welcome_create_user(
+    request: Request,
+    name: str = Form(...),
+    tagline: str = Form(""),
+    pin: str = Form(""),
+    remember: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    error = None
+    if not name.strip():
+        error = "Le nom est obligatoire."
+    else:
+        error = validate_pin_format(pin)
+    if error:
+        return render(
+            request,
+            "welcome.html",
+            db,
+            {"error": error, "force_choose": True},
+            status_code=400,
+        )
+    user = User(
+        name=name.strip(),
+        tagline=tagline.strip(),
+        pin_hash=hash_pin(pin),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return redirect_with_user("/", user.id, remember=form_remember(remember))
+
+
 @app.get("/users")
 def users_page(request: Request, db: Session = Depends(get_db)):
-    return render(request, "users.html", db, {"error": None, "edit_user": None})
+    user = require_user_or_redirect(request, db)
+    if isinstance(user, RedirectResponse):
+        return user
+    return render(
+        request,
+        "users.html",
+        db,
+        {"error": None, "edit_user": None, "edit_has_pin": False},
+    )
 
 
 @app.post("/users")
@@ -574,22 +661,35 @@ def create_user(
     request: Request,
     name: str = Form(...),
     tagline: str = Form(""),
+    pin: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    active = require_user_or_redirect(request, db)
+    if isinstance(active, RedirectResponse):
+        return active
+    error = None
     if not name.strip():
+        error = "Le nom est obligatoire."
+    else:
+        error = validate_pin_format(pin)
+    if error:
         return render(
             request,
             "users.html",
             db,
-            {"error": "Le nom est obligatoire.", "edit_user": None},
+            {"error": error, "edit_user": None, "edit_has_pin": False},
             status_code=400,
         )
 
-    user = User(name=name.strip(), tagline=tagline.strip())
+    user = User(
+        name=name.strip(),
+        tagline=tagline.strip(),
+        pin_hash=hash_pin(pin),
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
-    return redirect_with_user("/", user.id)
+    return redirect_with_user("/", user.id, remember=True)
 
 
 @app.post("/users/{user_id}/switch")
@@ -597,15 +697,32 @@ def switch_user(user_id: int, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    return redirect_with_user("/", user.id)
+    return redirect_with_user("/", user.id, remember=True)
 
 
 @app.get("/users/{user_id}/edit")
 def edit_user_page(user_id: int, request: Request, db: Session = Depends(get_db)):
+    active = require_user_or_redirect(request, db)
+    if isinstance(active, RedirectResponse):
+        return active
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    return render(request, "users.html", db, {"error": None, "edit_user": user})
+    if user.id != active.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Vous ne pouvez modifier que l’utilisateur actuellement actif.",
+        )
+    return render(
+        request,
+        "users.html",
+        db,
+        {
+            "error": None,
+            "edit_user": user,
+            "edit_has_pin": user_has_pin(user.pin_hash),
+        },
+    )
 
 
 @app.post("/users/{user_id}/edit")
@@ -614,53 +731,120 @@ def update_user(
     request: Request,
     name: str = Form(...),
     tagline: str = Form(""),
+    current_pin: str = Form(""),
+    new_pin: str = Form(""),
+    clear_pin: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    active = require_user_or_redirect(request, db)
+    if isinstance(active, RedirectResponse):
+        return active
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if user.id != active.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Vous ne pouvez modifier que l’utilisateur actuellement actif.",
+        )
+
+    has_pin = user_has_pin(user.pin_hash)
+    error = None
     if not name.strip():
+        error = "Le nom est obligatoire."
+    elif has_pin and not verify_pin(current_pin, user.pin_hash):
+        error = "Code PIN incorrect."
+    elif clear_pin:
+        pass
+    else:
+        error = validate_pin_format(new_pin)
+
+    if error:
         return render(
             request,
             "users.html",
             db,
-            {"error": "Le nom est obligatoire.", "edit_user": user},
+            {"error": error, "edit_user": user, "edit_has_pin": has_pin},
             status_code=400,
         )
+
     user.name = name.strip()
     user.tagline = tagline.strip()
+    if clear_pin:
+        user.pin_hash = ""
+    elif new_pin.strip():
+        user.pin_hash = hash_pin(new_pin)
     db.commit()
     return redirect_with_user("/users", user.id)
 
 
 @app.get("/users/{user_id}/delete")
 def delete_user_confirm(user_id: int, request: Request, db: Session = Depends(get_db)):
+    active = require_user_or_redirect(request, db)
+    if isinstance(active, RedirectResponse):
+        return active
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if user.id != active.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Vous ne pouvez supprimer que l’utilisateur actuellement actif.",
+        )
     vehicle_count = len(user_vehicles(db, user))
     return render(
         request,
         "user_delete.html",
         db,
-        {"target_user": user, "vehicle_count": vehicle_count},
+        {
+            "target_user": user,
+            "vehicle_count": vehicle_count,
+            "has_pin": user_has_pin(user.pin_hash),
+            "error": None,
+        },
     )
 
 
 @app.post("/users/{user_id}/delete")
-def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
+def delete_user(
+    user_id: int,
+    request: Request,
+    current_pin: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    active = require_user_or_redirect(request, db)
+    if isinstance(active, RedirectResponse):
+        return active
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if user.id != active.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Vous ne pouvez supprimer que l’utilisateur actuellement actif.",
+        )
+
+    has_pin = user_has_pin(user.pin_hash)
+    if has_pin and not verify_pin(current_pin, user.pin_hash):
+        vehicle_count = len(user_vehicles(db, user))
+        return render(
+            request,
+            "user_delete.html",
+            db,
+            {
+                "target_user": user,
+                "vehicle_count": vehicle_count,
+                "has_pin": True,
+                "error": "Code PIN incorrect.",
+            },
+            status_code=400,
+        )
+
     db.delete(user)
     db.commit()
 
-    remaining = list_users(db)
-    response = RedirectResponse(url="/users" if not remaining else "/", status_code=303)
-    if remaining:
-        set_active_user_cookie(response, remaining[0].id)
-    else:
-        response.delete_cookie(ACTIVE_USER_COOKIE)
+    response = RedirectResponse(url="/welcome", status_code=303)
+    response.delete_cookie(ACTIVE_USER_COOKIE)
     return response
 
 

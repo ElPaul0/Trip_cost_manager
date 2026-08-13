@@ -181,6 +181,76 @@ html[data-theme="dark"] .theme-toggle-icon {
   font-weight: 500;
 }
 
+.welcome-hero {
+  padding-bottom: 0.5rem;
+}
+
+.welcome-select-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.welcome-user-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.welcome-user-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.welcome-user-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.welcome-user-card:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.welcome-user-card input[type="radio"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.welcome-user-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.remember-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.remember-check input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .user-list {
   list-style: none;
   margin: 1.25rem 0 0;
@@ -229,6 +299,17 @@ html[data-theme="dark"] .theme-toggle-icon {
   font-size: 0.8rem;
   font-weight: 650;
   border-radius: 8px;
+}
+
+.badge.soft {
+  margin-left: 0.4rem;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+  color: var(--muted);
+  vertical-align: middle;
 }
 
 .brand {
@@ -890,4 +971,5 @@ td.trip-cell {
   .nav {
     gap: 1rem;
   }
+
 }
